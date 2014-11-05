@@ -31,6 +31,9 @@
 
 \usepackage{microtype}
 
+\usepackage{ccicons} % Creative Commons icons
+\usepackage{xspace} % Used for printing a trailing space better than using a tilde (~) using the \xspace command
+
 \usepackage{natbib}
 \usepackage{hyphenat}
 \usepackage{amsmath}
@@ -215,10 +218,48 @@ degree Doctor of Philosophy\vspace{.5in}
 
   \hrule
 
-  \begin{center}
-    Copyright \copyright{} \thesisyear{}, \thesisauthor{}\\ 
-    All rights reserved
-    \end{center}
+\wspace
+
+\noindent
+\textcopyright~2009--2014 William E. Byrd
+
+\wspace
+
+\noindent
+\huge
+\ccLogo
+\ccAttribution
+\large
+
+\wspace
+
+\noindent
+This work is licensed under a Creative Commons Attribution 4.0 International License.
+(CC BY 4.0) \\
+\url{http://creativecommons.org/licenses/by/4.0/}
+  
+%  \begin{center}
+%    Copyright \copyright{} \thesisyear{}, \thesisauthor{}\\ 
+%    All rights reserved
+%  \end{center}
+
+\wspace
+
+\noindent
+This document is a re-formatted version of the original, archival dissertation: \\
+\url{http://gradworks.umi.com/3380156.pdf}
+
+\wspace
+
+\noindent
+This document, along with all files necessary to typeset it, can be found at: \\ \url{https://github.com/webyrd/dissertation-single-spaced}
+
+\wspace
+
+\noindent
+Typeset by the author in \XeLaTeX. \\ \today\xspace version.
+
+
 }
 
 %\setlength{\baselineskip}{2\baselineskip}
