@@ -1,0 +1,8 @@
+echo '
+(load "~/latex/slatex/slatex.scm")
+;check pathname above is correct for you
+(slatex::process-main-tex-file "'$1'")' | petite
+if test -f pltexchk.jnk
+then tex $1; rm pltexchk.jnk
+else latex $1
+fi

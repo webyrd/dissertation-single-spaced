@@ -1,0 +1,567 @@
+\chapter{Techniques I:  Disequality Constraints}\label{diseqchapter}
+
+In this chapter we naively translate a Scheme program to miniKanren,
+and observe that the miniKanren relation exhibits undesirable
+behavior.  This behavior is due to our inability to express negation
+in core miniKanren.  We improve our miniKanren relation through the use of
+disequality constraints, which can express a limited form of negation.
+
+This chapter is organized as follows.  In
+section~\ref{translaterember} we translate the Scheme function 
+\mbox{\scheme|rember|} into the miniKanren relation \mbox{\scheme|rembero|}.
+In section~\ref{remberotrouble} we observe that
+\mbox{\scheme|rembero|} produces unexpected answers that do not
+correspond to answers produced by \mbox{\scheme|rember|}.  In
+section~\ref{reconsiderrember} we show that the unexpected answers are
+due to our failure to translate implicit tests in the
+\mbox{\scheme|rember|} function.  Section~\ref{diseqsection}
+introduces disequality constraints, which allow us to express a
+limited form of negation.  In section~\ref{fixingrembero} we fix our
+definition of \mbox{\scheme|rembero|} by adding a disequality
+constraint, thereby eliminating the unexpected answers.  Finally in
+section~\ref{diseqlimits} we point out several disadvantages of
+disequality constraints, and discuss when these constraints should be
+used.
+
+\section{Translating {\rembersymbol} into miniKanren}\label{translaterember}
+
+We begin by naively translating the \scheme|rember| function into
+miniKanren.  \mbox{\scheme|rember|} takes two arguments: a symbol \scheme|x| and a
+list of symbols \scheme|ls|, and removes the first occurrence of
+\scheme|x| from \scheme|ls|.
+
+\wspace
+
+\noindent\mbox{\scheme|(rember 'b '(a b c b d)) => |}\mbox{\schemeresult|`(a c b d)|}
+
+\wspace
+
+\noindent\mbox{\scheme|(rember 'd '(a b c)) => |}\mbox{\schemeresult|`(a b c)|}
+
+%\wspace
+
+\newpage
+
+Here is \mbox{\scheme|rember|}
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define rember
+  (lambda (x ls)
+    (cond
+      ((null? ls) '())
+      ((eq? (car ls) x) (cdr ls))
+      (else (cons (car ls) (rember x (cdr ls)))))))
+\end{schemedisplay}
+
+To translate \mbox{\scheme|rember|} into the miniKanren relation
+\mbox{\scheme|rembero|} we add a third argument \mbox{\scheme|out|},
+change \mbox{\scheme|cond|} to \mbox{\scheme|conde|}, and replace uses
+of \mbox{\scheme|null?|}, \mbox{\scheme|eq?|}, \mbox{\scheme|cons|},
+\mbox{\scheme|car|}, and \mbox{\scheme|cdr|} with calls to
+\mbox{\scheme|==|}.  We also unnest the recursive call, using a
+temporary variable \mbox{\scheme|res|} to hold the ``output'' value of
+the recursive call.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define rembero
+  (lambda (x ls out)
+    (conde
+      ((== '() ls) (== '() out))
+      ((exist (a d)
+         (== `(,a . ,d) ls)
+         (== a x)
+         (== d out)))
+      ((exist (a d res)
+         (== `(,a . ,d) ls)
+         (== `(,a . ,res) out)
+         (rembero x d res))))))
+\end{schemedisplay}
+
+\section{The Trouble with {\remberosymbol}}\label{remberotrouble}
+
+For simple tests, it may seem that \mbox{\scheme|rembero|} works as
+expected, mimicking the behavior of \mbox{\scheme|rember|}.
+
+\wspace
+
+\noindent\mbox{\scheme|(run1 (q) (rembero 'b '(a b c b d) q)) => |} \mbox{\schemeresult|`((a c b d))|}
+
+\wspace
+
+\noindent\mbox{\scheme|(run1 (q) (rembero 'd '(a b c) q)) => |} \mbox{\schemeresult|`((a b c))|}
+
+\wspace
+
+\noindent However, we notice a problem if we replace the \mbox{\scheme|run1|}
+with \mbox{\scheme|run*|}.
+
+\wspace
+
+\noindent\mbox{\scheme|(run* (q) (rembero 'b '(a b c b d) q)) => |} \mbox{\schemeresult|`((a c b d) (a b c d) (a b c b d))|}
+
+\wspace
+
+\noindent Now there are multiple answers.  The first answer is expected, but in
+the second answer \mbox{\scheme|rembero|} removes the second
+occurrence of \mbox{\scheme|`b|} rather than the first occurrence.  The
+last answer is even worse---\mbox{\scheme|rembero|} does not remove
+either \mbox{\scheme|`b|}, as is evidenced by the \mbox{\scheme|run|}
+expression
+
+\wspace
+
+\noindent\mbox{\scheme|(run* (q) (rembero 'b '(b) '(b))) => |} \mbox{\schemeresult|`(_.0)|}
+
+\section{Reconsidering {\rembersymbol}}\label{reconsiderrember}
+
+Where did we go wrong?  Is our miniKanren translation not faithful to
+the original Scheme program?
+
+Not quite. The problem is that \mbox{\scheme|cond|} tries its clauses
+in order, stopping at the first clause whose test evaluates to a true
+value, while \mbox{\scheme|conde|} tries every possible clause.  But
+isn't there only one \mbox{\scheme|cond|} clause that matches any
+given values of \mbox{\scheme|x|} and \mbox{\scheme|ls|}?  Actually,
+no.
+
+Let us examine the definition of \mbox{\scheme|rember|} once again.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define rember
+  (lambda (x ls)
+    (cond
+      ((null? ls) '())
+      ((eq? (car ls) x) (cdr ls))
+      (else (cons (car ls) (rember x (cdr ls)))))))
+\end{schemedisplay}
+
+\noindent Consider the call \mbox{\scheme|(rember 'a '(a b c))|}.
+Clearly the \mbox{\scheme|null?|} test keeps the first clause from
+returning an answer, while the \mbox{\scheme|eq?|} test allows the
+second clause to produce an answer.  But the test of the final clause,
+the ``always-true'' \mbox{\scheme|else|} keyword, 
+is equivalent to the trivial \mbox{\scheme|#t|} test.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define rember
+  (lambda (x ls)
+    (cond
+      ((null? ls) '())
+      ((eq? (car ls) x) (cdr ls))
+      (#t (cons (car ls) (rember x (cdr ls)))))))
+\end{schemedisplay}
+
+\noindent If it were not for the second clause, the third clause would produce
+an answer for the call \mbox{\scheme|(rember 'a '(a b c))|}.  In fact,
+if we swap the last two clauses
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define rember
+  (lambda (x ls)
+    (cond
+      ((null? ls) '())
+      (#t (cons (car ls) (rember x (cdr ls))))
+      ((eq? (car ls) x) (cdr ls)))))
+\end{schemedisplay}
+
+\noindent the call \mbox{\scheme|(rember 'a '(a b c))|} returns
+\mbox{\scheme|`(a b c)|} rather than \mbox{\scheme|`(b c)|}.
+
+What does the \mbox{\scheme|else|} test really mean in the original
+definition of \scheme|rember|?  It means that the tests in all the above
+clauses must evaluate to \mbox{\scheme|#f|}.  Similar reasoning holds
+for the \mbox{\scheme|eq?|} test of the second clause---the test
+implies that the \mbox{\scheme|null?|} test in the first clause
+returned \mbox{\scheme|#f|}.  We can therefore redefine
+\mbox{\scheme|rember|} to make the implicit tests explicit.
+
+\newpage
+
+%\schemedisplayspace
+\begin{schemedisplay}
+(define rember
+  (lambda (x ls)
+    (cond
+      ((null? ls) '())
+      ((and (not (null? ls)) (eq? (car ls) x))
+       (cdr ls))
+      ((and (not (null? ls)) (not (eq? (car ls) x)))
+       (cons (car ls) (rember x (cdr ls)))))))
+\end{schemedisplay}
+
+\mbox{\scheme|rember|} now produces the same answers no matter how we
+reorder the clauses; the clauses are now \emph{non-overlapping},
+since only a single clause can produce an answer for any specific call
+to \mbox{\scheme|rember|}\footnote{Throughout this dissertation we strive to write programs that adhere to the \emph{non-overlapping principle}, to avoid duplicate or misleading answers.  Such programs are similar to the guarded command programs described in \citet{guardedcommands,disciplineprog}.}.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define rember
+  (lambda (x ls)
+    (cond
+      ((and (not (null? ls)) (not (eq? (car ls) x)))
+       (cons (car ls) (rember x (cdr ls))))
+      ((and (not (null? ls)) (eq? (car ls) x))
+       (cdr ls))
+      ((null? ls) '()))))
+\end{schemedisplay}
+
+\noindent Even though we have reordered the \scheme|cond| clauses,
+\scheme|rember| works as expected.
+
+\wspace
+
+\noindent\mbox{\scheme|(rember 'a '(a b c)) => |}\mbox{\schemeresult|`(b c)|}
+
+\section{Disequality Constraints}\label{diseqsection}
+
+Now we can reconsider our definition of \mbox{\scheme|rembero|},
+adding the equivalent of the explicit tests to make our
+\mbox{\scheme|conde|} clauses non-overlapping\footnote{More than one
+  \mbox{\scheme|conde|} clause may succeed if \mbox{\scheme|rembero|}
+  is passed fresh variables.  However, only one clause will succeed if
+  the first two arguments to \mbox{\scheme|rembero|} are fully
+  ground.}.
+
+Unfortunately, we do not have a way to express negation in core
+miniKanren\footnote{The impure operators \scheme|conda| and
+  \scheme|condu| from section~\ref{impureoperatorssection} can be used to express
+  ``negation as failure'', as is commonly done in Prolog programs, but
+  we eschew this non-declarative approach.}.  However, we do not need
+full negation to express the test \mbox{\scheme|(not (null? ls))|},
+since if \mbox{\scheme|ls|} is not null it must be a
+pair\footnote{This assumes, of course, that the second argument to
+  \mbox{\scheme|rembero|} can be unified with a proper list.  Passing
+  in \mbox{\scheme|5|} as the \mbox{\scheme|ls|} argument makes no
+  more sense for \mbox{\scheme|rembero|} than it does for
+  \mbox{\scheme|rember|}.}.  In fact, we are already expressing the
+\mbox{\scheme|(not (null? ls))|} test implicitly, through the
+unification \mbox{\scheme|(== `(,a . ,d) ls)|} that appears in the
+last two \mbox{\scheme|conde|} clauses.
+
+The only remaining test is \mbox{\scheme|(not (eq? (car ls) x))|} in
+the last clause.  How might we express that the car of
+\mbox{\scheme|ls|} is not \mbox{\scheme|x|}?  We could attempt to
+unify the car of \mbox{\scheme|ls|} with every symbol other than
+\mbox{\scheme|x|}.  Even if \mbox{\scheme|x|} were instantiated, to the
+symbol \mbox{\scheme|`a|} for example, we would have to unify
+\mbox{\scheme|x|} with every symbol \emph{other} than
+\mbox{\scheme|`a|}, of which there are infinitely many.  Clearly this
+is problematic: enumerating an infinite domain can easily lead to
+divergent behavior\footnote{It is possible to enumerate some infinite
+  domains using a finite number of cases, through the use of clever
+  data representation.  For example, using the binary list notation
+  from Chapter~\ref{arithchapter} we can express that a natural number
+  \mbox{\scheme|x|} is not \mbox{\scheme|5|} by unifying
+  \mbox{\scheme|x|} with the patterns \mbox{\scheme|`()|},
+  \mbox{\scheme|`(1)|}, \mbox{\scheme|`(,a 1)|}, \mbox{\scheme|`(0 ,a 1)|}, 
+  \mbox{\scheme|`(1 1 1)|}, and \mbox{\scheme|`(,a ,b ,c ,d . ,rest)|}.  Although this
+  approach avoids divergence, it requires us to know the domain and
+  representation of \mbox{\scheme|x|}.  Furthermore, this approach may result in
+  duplicate answers even for programs that adhere to the
+  non-overlapping principle, which can be a problem even when
+  enumerating finite domains.}.
+
+Compare the tests in the second and third \mbox{\scheme|rember|} clauses: \mbox{\scheme|(eq? (car ls) x)|} and \mbox{\scheme|(not (eq? (car ls) x))|}.  We use \mbox{\scheme|(== a x)|} to express that
+the car of \mbox{\scheme|ls|} (which is \mbox{\scheme|a|}) is equal to \mbox{\scheme|x|}.  What we need is the ability
+to express the \emph{disequality constraint}\footnote{As opposed to an \emph{equality constraint}, such as \mbox{\scheme|(== a x)|}.  Disequality is also known as \emph{disunification}.} \mbox{\scheme|(=/= a x)|}\footnote{We may also wish to introduce an operator \mbox{\scheme|=/=-no-check|} that performs \emph{unsound} disunification, to avoid the cost of the occurs check.}, which
+asserts that \mbox{\scheme|a|} and \mbox{\scheme|x|} are not equal, and can never be made equal
+through unification.
+
+Before we add a disequality constraint to \mbox{\scheme|rembero|}, let us examine some
+simple uses of \mbox{\scheme|=/=|}.
+In the first example, we unify \mbox{\scheme|q|} with
+\mbox{\scheme|5|}, then specify that \mbox{\scheme|q|} can never be
+\mbox{\scheme|5|}.  As expected, the call to \mbox{\scheme|=/=|}
+fails.
+
+\wspace
+
+\noindent\mbox{\scheme|(run* (q) (== 5 q) (=/= 5 q)) => |} \mbox{\schemeresult|`()|}
+
+\wspace
+
+If we swap the goals, the program behaves the same.
+
+\wspace
+
+\noindent\mbox{\scheme|(run* (q) (=/= 5 q) (== 5 q)) => |} \mbox{\schemeresult|`()|}
+
+\wspace
+
+\mbox{\scheme|=/=|} can take arbitrary expressions, as shown in the next two examples.
+
+\wspace
+
+\noindent\mbox{\scheme|(run* (q) (=/= (+ 2 3) 5)) => |} \mbox{\schemeresult|`()|}
+
+\wspace
+
+\noindent\mbox{\scheme|(run* (q) (=/= (* 2 3) 5)) => |} \mbox{\schemeresult|`(_.0)|}
+
+\wspace
+
+In this \mbox{\scheme|run*|} expression we assert that
+\mbox{\scheme|q|} can never be \mbox{\scheme|5|} or \mbox{\scheme|6|}.
+We express the latter constraint indirectly, by constraining
+\mbox{\scheme|x|}.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(run* (q)
+  (exist (x)
+    (=/= 5 q)
+    (== x q)
+    (=/= 6 x))) =>
+\end{schemedisplay}
+\nspace
+\begin{schemeresponse}
+`((_.0 : (never-equal ((_.0 . 5)) ((_.0 . 6)))))
+\end{schemeresponse}
+
+\noindent The answer includes two reified constraints indicating that the output
+variable (\mbox{\scheme|q|}) can never be \mbox{\scheme|5|} or \mbox{\scheme|6|}.
+
+\newpage
+
+Consider this \mbox{\scheme|run*|} expression.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(run* (q)
+  (exist (y z)
+    (=/= `(,y . ,z) q))) =>
+\end{schemedisplay}
+\nspace
+\begin{schemeresponse}
+`(_.0)
+\end{schemeresponse}
+
+\noindent It may seem that the constraint on \mbox{\scheme|q|} should
+be reified.  However, this constraint can only be violated if
+\mbox{\scheme|q|} is unified with \mbox{\scheme|`(,y . ,z)|}.  Since
+\mbox{\scheme|y|} and \mbox{\scheme|z|} are not reified, the
+constraint is not \emph{relevant} and is therefore not reified.
+
+To reify a constraint, we must reify all of the variables involved in the constraint.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(run* (q)
+  (exist (x y z)
+    (=/= `(,y . ,z) x)
+    (== `(,x ,y ,z) q))) =>
+\end{schemedisplay}
+\nspace
+\begin{schemeresponse}
+`(((_.0 _.1 _.2) : (never-equal ((_.0 _.1 . _.2)))))
+\end{schemeresponse}
+
+\noindent The constraint is easier to interpret if we remember that 
+\mbox{\scheme|`(never-equal ((_.0 _.1 . _.2)))|} is equivalent to 
+\mbox{\scheme|`(never-equal ((_.0 . (_.1 . _.2))))|}.
+
+Here is a slightly more complicated example of \mbox{\scheme|=/=|}.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(run* (q)
+  (exist (x y z)
+    (== `(,y . ,z) x)
+    (=/= '(5 . 6) x)
+    (== 5 y)
+    (== `(,x ,y ,z) q))) =>
+\end{schemedisplay}
+\nspace
+\begin{schemeresponse}
+`((((5 . _.0) 5 _.0) : (never-equal ((_.0 . 6)))))
+\end{schemeresponse}
+
+Here is the same program, but with \mbox{\scheme|(== 6 y)|} instead of \mbox{\scheme|(== 5 y)|}.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(run* (q)
+  (exist (x y z)
+    (== `(,y . ,z) x)
+    (=/= '(5 . 6) x)
+    (== 6 y)
+    (== `(,x ,y ,z) q))) =>
+\end{schemedisplay}
+\nspace
+\begin{schemeresponse}
+`(((6 . _.0) 6 _.0))
+\end{schemeresponse}
+
+\noindent Since \mbox{\scheme|y|} cannot be \mbox{\scheme|5|}, \mbox{\scheme|(=/= '(5 . 6) x)|} cannot be violated and is
+therefore discarded.
+
+We end this section with a final example, to demonstrate how to interpret more complicated reified constraints.
+
+\newpage
+
+%\schemedisplayspace
+\begin{schemedisplay}
+(run* (q)
+  (exist (x y z)
+    (=/= 5 x)
+    (=/= 6 x)
+    (=/= `(,y 1) `(2 ,z))
+    (== `(,x ,y ,z) q))) =>
+\end{schemedisplay}
+\nspace
+\begin{schemeresponse}
+`(((_.0 _.1 _.2) : (never-equal ((_.1 . 2) (_.2 . 1)) ((_.0 . 6)) ((_.0 . 5)))))
+\end{schemeresponse}
+
+\noindent The constraints \mbox{\scheme|`((_.0 . 6))|} and
+\mbox{\scheme|`((_.0 . 5))|} are independent of each other, and
+indicate that \mbox{\scheme|x|} can never be \mbox{\scheme|5|} or
+\mbox{\scheme|6|}. However, \mbox{\scheme|`((_.1 . 2) (_.2 . 1))|}
+represents a \emph{single} constraint, indicating that
+\mbox{\scheme|y|} cannot be \mbox{\scheme|2|} if \mbox{\scheme|z|} is
+\mbox{\scheme|1|}\footnote{Reifying constraints in a friendly manner
+  is non-trivial, as we will see in Chapter~\ref{diseqimplchapter}.}.
+
+\section{Fixing {\remberosymbol}}\label{fixingrembero}
+\enlargethispage{2em}
+
+
+Now that we understand \mbox{\scheme|=/=|}, and how to interpret reified constraints,
+we are ready to add the disequality constraint \mbox{\scheme|(=/= a x)|} to the last
+clause of \mbox{\scheme|rembero|}.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define rembero
+  (lambda (x ls out)
+    (conde
+      ((== '() ls) (== '() out))
+      ((exist (a d)
+         (== `(,a . ,d) ls)
+         (== a x)
+         (== d out)))
+      ((exist (a d res)
+         (== `(,a . ,d) ls)
+         (=/= a x)
+         (== `(,a . ,res) out)
+         (rembero x d res))))))
+\end{schemedisplay}
+
+If we re-run the programs from section~\ref{remberotrouble} we see
+that \mbox{\scheme|rembero|}'s behavior is consistent with that of \mbox{\scheme|rember|}.
+
+\wspace
+
+\noindent\mbox{\scheme|(run* (q) (rembero 'b '(a b c b d) q)) => |} \mbox{\schemeresult|`((a c b d))|}
+
+\wspace
+
+\noindent\mbox{\scheme|(run* (q) (rembero 'b '(b) '(b))) => |} \mbox{\schemeresult|`()|}
+
+\wspace
+
+Of course, \mbox{\scheme|rembero|} is more flexible than \mbox{\scheme|rember|}.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(run* (q)
+  (exist (x out)
+    (rembero x '(a b c) out)
+    (== `(,x ,out) q))) =>
+\end{schemedisplay}
+\nspace
+\begin{schemeresponse}
+`((a (b c))
+  (b (a c))
+  (c (a b))
+  ((_.0 (a b c)) : (never-equal ((_.0 . c)) ((_.0 . b)) ((_.0 . a)))))
+\end{schemeresponse}
+
+The final answer indicates that removing a symbol \mbox{\scheme|x|}
+from the list \mbox{\scheme|`(a b c)|} results in the original list,
+provided that \mbox{\scheme|x|} is not \mbox{\scheme|`a|},
+\mbox{\scheme|`b|}, or \mbox{\scheme|`c|}.
+
+
+\section{Limitations of Disequality Constraints}\label{diseqlimits}
+
+Disequality constraints add expressive power to core
+miniKanren\footnote{It seems that disequality constraints were present
+  in a very early version of Prolog~\cite{birthofprolog}, although
+  they were apparently removed after several years.  Prolog
+  II~\cite{prologtenfigs} reintroduced disequality constraints, which
+  are now standard in most Prolog systems.}, allowing us to express a
+limited form of negation.  However, disequality constraints have
+several limitations and disadvantages.
+
+First, the \mbox{\scheme|=/=|} operator can only express that two
+terms are never the same.  This is much more limited than the ability
+to express full negation.  For example, consider the test
+\mbox{\scheme|(and (not (null? ls)) (not (eq? (car ls) x)))|} from the
+version of \mbox{\scheme|rember|} in section~\ref{reconsiderrember}.
+By de Morgan's law, this test is logically equivalent to
+\mbox{\scheme|(not (or (null? ls) (eq? (car ls) x)))|}.  We can use
+disequality constraints to express the first version of the test, but
+not the second.
+
+Answers containing reified disequality constraints can be more
+difficult to interpret than answers without constraints.  Also, it is
+not always obvious why a constraint was \emph{not} reified (whether it
+was not relevant or could not be violated).
+
+Disequality constraints also complicate the implementation of the
+unifier, and especially the reifier.  Disequality constraints can also
+be expensive, since every constraint must be checked after each
+successful unification.
+
+Because of these disadvantages, it is preferable to use
+\mbox{\scheme|==|} rather than \mbox{\scheme|=/=|} whenever practical.
+For example, it is better to express the test \mbox{\scheme|(not (null? ls))|} 
+as \mbox{\scheme|(== `(,a . ,d) ls)|} rather than as
+\mbox{\scheme|(=/= '() ls)|}.
+
+Still, disequality constraints add expressive power to core miniKanren, and are
+generally preferable to enumerating infinite (or even finite) domains.
+
+
+
+
+
+
+% [membero example]
+
+% [rembero  (Scheme -> mk translation)
+% duplicate answers
+
+% simplest example of CLP
+
+% implicit negation in cond lines
+
+% Dijkstra guard
+
+% must be able to swap cond clauses in Scheme
+
+% tagging (for application expressions in lambda calculus, for example)]
+
+% [surpriseo]
+
+% [an arithmetic example---some number is not 5]
+
+% can represent infinitely many terms using a single constraint---useful
+% in avoiding divergence
+
+% only relevant constraints are printed
+
+% pairs
+
+% constraint simplification
+
+% [look at test programs from =/= test cases]
+
+% [all-different]

@@ -1,0 +1,414 @@
+\chapter{Implementation VI: Ferns}\label{fernsimpl}
+
+In this chapter we present a complete, portable, \RsixRSsp
+compliant~\cite{r6rs} implementation of ferns\footnote{The ferns
+  library is available at
+  \url{http://www.cs.indiana.edu/~webyrd/ferns.html}}. We begin with a
+description of \emph{engines}~\cite{CHayne87}, which we use to handle
+suspended, preemptible computations. We then describe and implement
+frons pairs, the building blocks of ferns. Next we present
+\scheme|fcar| and \scheme|fcdr|, which work on both frons pairs and
+cons pairs. Taking the \scheme|fcar| of a frons pair involves choosing
+one of the possible values in the fern and promoting the chosen value.
+Taking the \scheme|fcdr| of a frons pair ensures the first value in
+the pair is determined and returns the rest of the fern.  Taking the
+\scheme|fcar| (\scheme|fcdr|) of a cons pair is the same as taking its
+\scheme|car| (\scheme|cdr|).
+
+\section{Engines}\label{fernsenginessection}
+
+An engine is a procedure that computes a delayed value in steps\footnote{See Appendix~\ref{nestable-engines} for our implementation of nestable engines.}.
+%\cite{CHayne87}. 
+To demonstrate the use of engines, consider the procedure
+
+\schemedisplayspace
+\schemeinput{fernscode/wait}
+
+\noindent To create an engine \scheme|e| to delay a call to
+\scheme|(wait 20)|, we write
+
+\wspace
+\scheme|(define e (engine (wait 20)))|
+\wspace
+
+\noindent 
+To partially compute \mbox{\scheme|(wait 20)|}, we call \scheme|e|
+with a number of \scheme|ticks|: \mbox{\scheme|(e 5)|}, which returns
+either a pair with false in the car and a new advanced engine (one
+advanced 5 ticks) in the cdr or a pair with unused ticks (always true)
+in the car and the value of the computation (here \schemeresult|done|)
+in the cdr.  In our embedding of engines, a tick is spent on each
+call to a procedure defined with \scheme|timed-lambda|. Consider
+
+\schemedisplayspace
+
+\belowcodeskip 0pt
+
+\schemeinput{fernscode/coaxexample-2}
+\nspace
+\begin{schemeresponse}
+$\Rightarrow$ `(#f #f #f #f 4 done).
+\end{schemeresponse}
+
+\wspace
+
+\noindent In this example, \mbox{\scheme|(wait 20)|} calls
+\scheme|wait| a total of $21$ times (including the initial call), so
+on the fifth engine invocation, it terminates with 4 unused ticks.
+
+The delayed computation in an engine may involve creating and calling
+more engines. When a \emph{nested engine}
+\cite{hieb94subcontinuations} consumes a tick, every
+frons-enclosing engine also consumes a tick. To see this, we define
+\scheme|choose-bottom| using engines:
+
+\schemedisplayspace
+\schemeinput{fernscode/coaxchoose}
+
+\wspace
+
+\noindent Nested calls to \scheme|choose-bottom|, for example 
+\mbox{\scheme|(choose-bottom v1 (choose-bottom v2 v3))|}, rely on nestable engines.  
+This implementation of \scheme|choose-bottom| is fair because our embedding
+of nested engines is fair: every tick given to the second engine in
+the outer call to \scheme|choose-aux-bottom| is passed on to exactly one of
+the engines, alternating between the engines for \scheme|v2| and
+\scheme|v3|, in the inner call to \scheme|choose-aux-bottom|.
+
+\section{The Ferns Data Type}\label{fernsdatatype}
+
+We represent a frons pair by a cons pair that contains at least one
+tagged engine (\scheme|te|). Engines are tagged with either \scheme|L|
+when locked (being advanced by another computation) or \scheme|U| when
+unlocked (runnable).  We distinguish between locked and unlocked
+engines because the \scheme|fcar| of a fern may be requested more than
+once simultaneously. Thus, to manage effects, the locks prevent the same
+engine from being advanced in more than one computation\footnote{A lock creates a localized critical region
+that corresponds to the intended use of \scheme|sting-unless|~\cite{FriedmanWise78}.}.
+
+We define simple predicates \scheme|engine-tag-L-car|,
+\scheme|engine-tag-U-car|, \scheme|engine-tag-L-cdr|, and
+\scheme|engine-tag-U-cdr| for testing whether one side of a frons pair
+contains a locked or unlocked engine. 
+
+\schemedisplayspace
+\schemeinput{fernscode/lockedorunhuh}
+
+\wspace
+
+The procedure \scheme|coax-d| (\scheme|coax-a|) takes a frons pair
+with an unlocked tagged engine in the cdr (car) and locks and advances
+the tagged engine by \scheme|nsteps| ticks. If
+\scheme|coax|ing~\cite{Friedman79b} the engine does not finish, the
+tagged engine is unlocked and updated with the advanced engine. If
+\scheme|coax|ing the engine finishes with value \scheme|v|, then
+\scheme|v| becomes the frons pair's cdr (car). In addition, the tagged
+engine will be updated with an unlocked dummy engine that returns
+\scheme|v|. We do this because the cdrs of multiple frons pairs may
+share a single engine, as will be explained at the end of this
+section.  Although the cars of frons pairs never share engines, we do
+the same for the cars.
+
+\schemedisplayspace
+\schemeinput{fernscode/coaxskcdr}
+\schemeinput{fernscode/replacebang}
+
+\wspace
+
+\noindent
+Now we present the implementation of the fern operators.
+
+%\subsection{\protect\scheme|frons|}\label{frons}
+
+\section{\fronssymbol, \fcarsymbol, and \fcdrsymbol}\label{frons}\label{car}\label{cdr}\label{fronsconstructorsection}
+
+\scheme|frons| constructs a frons pair by placing unlocked engines of
+its unevaluated operands in a cons pair.
+
+\schemedisplayspace
+\schemeinput{fernscode/frons}
+
+%\section{\protect\scheme|fcar|}\label{car}
+
+\wspace
+
+\noindent
+When the \scheme|fcar| (definition below), which is defined only for
+ferns, is requested, parallel evaluation of the possible values is
+accomplished by a round-robin race of the engines in the
+fern.  During its turn, each engine is advanced a fixed,
+arbitrary number of ticks until a value is produced.  The race is
+accomplished by two mutually recursive functions: \scheme|race-car|,
+which works on the possible values of the fern, and \scheme|race-cdr|,
+which moves onto the next frons pair by either following the cdr of
+the current frons pair or starting again at the beginning.
+
+\schemedisplayspace
+\schemeinput{fernscode/car}
+
+\wspace
+
+\noindent
+\scheme|race-car| dispatches on the current pair or value \scheme|q|.
+When the car of \scheme|q| is a locked engine, \scheme|race-car| waits
+for it to become unlocked by waiting \scheme|nsteps| ticks and then
+calling \scheme|race-cdr|. The call to \scheme|wait| is required to
+allow \scheme|race-car| to be preempted at this point, so the owner of
+the lock does not starve. When the car is an unlocked engine,
+\scheme|race-car| advances the unlocked engine \scheme|nsteps| ticks,
+then continues the race by calling \scheme|race-cdr|.  When \scheme|q|
+is not a pair, \scheme|race-car| simply starts the race again from the
+beginning.  This happens when racing over a finite fern and emerges
+from the \scheme|else| clause of \scheme|race-cdr|. When the car
+contains a value, we call \scheme|promote| which ensures a value is promoted to
+the car of \scheme|p|, then return that value.
+
+One subtlety of the definition of \scheme|race-car| is that after
+coaxing an engine it does not check if the coaxing has led to
+completion.  If it has, the value will be picked up the next time the
+race comes around, if necessary.  Calling \scheme|promote!|
+immediately would be incorrect because an engine may be preempted
+while advancing, at which point promotion from \scheme|p| may be
+performed by another computation with a different value for the car of
+\scheme|p|.  
+
+%\enlargethispage{40pt}
+
+\scheme|race-cdr| also dispatches on \scheme|q|, this time examining its
+cdr. When the cdr of \scheme|q| is a locked engine,
+\scheme|race-cdr|, being unable to proceed further down the fern,
+restarts the race by calling \scheme|race-car| on \scheme|p|. When the
+cdr of \scheme|q| contains an unlocked engine, \scheme|race-cdr|
+advances the engine \scheme|nsteps| ticks as in \scheme|race-car|, and
+then restarts the race. If that engine finishes with a new frons pair,
+the new pair will then be competing in the race and will be examined
+next time around. When the cdr of \scheme|q| is a value, usually a fern,
+\scheme|race-cdr| continues the race by passing it to
+\scheme|race-car|; if a non-pair value is at the end of a fern, it will
+be picked up by the third clause in \scheme|race-car|.
+
+\scheme|fcar| avoids starvation by running each engine in a subfern for the
+same number of ticks. During a race, a subfern of the fern in question
+is in a fair state: for some (potentially empty) prefix of the subfern there are no engines in the cdrs, so
+each potential value in a fair subfern is considered equally. When this fair
+subfern is not the entire fern, the race devotes the same number of
+ticks to lengthening the fair subfern as it does to each element of that
+subfern. Since cdr engines often evaluate to pairs quickly, the
+entire fern usually becomes fair in a number of races equal to the
+length of the fern. When cdr engines do not finish quickly, however, the
+process of making the entire fern fair can take much longer, especially
+for long ferns. The cost of finding the value of an element occurring near
+the end of such a fern can be much greater than the cost for an element
+near the beginning.
+
+%\enlargethispage{30pt}
+
+Starting from \scheme|p|, \scheme|promote!| (definition below) finds
+the first pair \scheme|r| whose car contains a convergent value, and
+propagates that value back to \scheme|p|.  Each frons pair in this
+chain (excluding \scheme|r|) is transformed into a cons pair whose car
+is the convergent value. These new frons pairs are connected as a fern
+and the last one shares \scheme|r|'s cdr.  When \scheme|promote!| is
+called from \scheme|race-car|, we know that \scheme|q|'s car is a
+value but we don't know for certain that there is no other pair, say
+\scheme|r|, in the chain from \scheme|p| to \scheme|q|.  Thus, we must
+search from \scheme|p| without preemption to find the closest value to
+\scheme|p|.  This situation can arise when there are two calls to
+\scheme|fcar| on the same fern competing:
+
+\schemedisplayspace
+\schemeinput{fernscode/whypromotion.ss}
+
+\wspace
+
+\noindent
+If a call to \scheme|race-car| finds the value \schemeresult|720| and
+tries to promote it, but the value \schemeresult|120| has already been
+promoted, we don't want to change the car of \scheme|alpha|. Instead,
+the call to \scheme|promote| when \schemeresult|720| is found will
+find the \schemeresult|120| first and stop.
+
+% Each finds a different value; since each call is nested, the two calls are
+% effectively running in parallel. Then the one with the value closer to
+% \scheme|p| will promote first even if \scheme|promote!| is non-preemptible.
+
+\schemedisplayspace
+\schemeinput{fernscode/promote}
+
+%\section{\protect\scheme|fcdr|}\label{cdr}
+
+\wspace
+
+The \scheme|fcdr| of a fern (definition below) cannot be determined until the
+fern's \scheme|fcar| has been determined.  Once the car has been determined,
+there is no longer parallel competition between potential cdrs.  Thus,
+we can use \scheme|cdrdollar|, which takes the cdr of a stream. Then,
+since \scheme|p|'s car has been determined, \scheme|p| has therefore
+become a cons pair, so \scheme|fcdr| returns the value in \scheme|p|'s
+cdr.  (\scheme|cardollar|'s definition follows by replacing all
+\scheme|d|s by \scheme|a|s.  \scheme|consdollar| is the same as
+\scheme|frons|, and the definitions of the other stream operators
+follow the definitions with operators $f_{\perp}$ replaced by $f_s$.)
+
+\schemedisplayspace
+\schemeinput{fernscode/cdr}
+\schemeinput{fernscode/cdrdollar}
+
+\wspace
+
+If the engine being advanced by \scheme|cdrdollar| completes,
+\scheme|cdrdollar| indicates that \scheme|coax-d| should replace the
+tagged engine in \scheme|p| by the computed value.  However,
+\scheme|race-cdr| and \scheme|fcdr| are required not only to update
+the frons pair with the calculated value, but also to update
+the tagged engine because there might be a fern other than \scheme|p|
+sharing this engine. Consider the following expression where we assume
+\scheme|list| evaluates its arguments from left to right.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(let ((beta (frons 1 (ints-bottom 2))))
+  (let ((alpha (frons bottom beta)))
+    (list (fcar alpha) (fcadr beta) (fcadr alpha))))
+\end{schemedisplay}
+\nspace
+\begin{schemeresponse}
+~> `(1 2 2)
+\end{schemeresponse}
+
+\wspace
+
+\noindent Figure~\ref{fig:sk} shows the data structures involved in
+evaluating the expression. 
+
+\schemedisplayspace
+
+\vspace{-5pt}
+
+\begin{figure}[h]
+\begin{schemeregion}
+\begin{picture}(40,50)(-40,-30)
+\Draw\PenSize(1pt)
+\namefig(a,15,35)
+\namebox(\scheme|alpha|)
+\renewcommand{\boxtext}{\scheme|bottom|}
+\efronsbox
+\renewcommand{\boxtext}{\scheme|beta|}
+\rengine
+\EndDraw
+\end{picture}
+\end{schemeregion}
+
+\begin{schemeregion}
+\begin{picture}(80,0)(-120,-40)   %%% 
+\Draw\PenSize(1pt)
+\namefig(b,35,35)
+\namebox(\scheme|alpha|)
+\renewcommand{\egap}{\qbxwd}
+\renewcommand{\boxtext}{\scheme|bottom|}
+\efronsbox
+\rightsolid
+\namebox(\scheme|beta|)
+\renewcommand{\boxtext}{\schemeresult|one|}
+\fronsbox
+\renewcommand{\boxtext}{$\iota_2$}
+\rengine
+\EndDraw
+\end{picture}
+\end{schemeregion}
+
+\begin{schemeregion}
+\begin{picture}(80,0)(-240,-50)
+\Draw\PenSize(1pt)
+\namefig(c,35,35)
+\namebox(\scheme|alpha|)
+\renewcommand{\boxtext}{\schemeresult|one|}
+\consbox\downsolid
+\renewcommand{\boxtext}{\scheme|bottom|}
+\renewcommand{\egap}{6}
+\efronsbox\rightunright\blankup\Move(\hbxwd,-\qbxwd)
+\namebox(\scheme|beta|)
+\renewcommand{\boxtext}{\schemeresult|one|}
+\fronsbox
+\renewcommand{\boxtext}{$\iota_2$}
+\renewcommand{\egap}{8}
+\rengine
+\EndDraw
+\end{picture}
+\end{schemeregion}
+
+\begin{schemeregion}
+\begin{picture}(80,80)(-40,-50)
+\Draw\PenSize(1pt)
+\namefig(d,40,60)
+\namebox(\scheme|alpha|)
+\renewcommand{\boxtext}{\schemeresult|one|}
+\consbox\downsolid
+\renewcommand{\boxtext}{\scheme|bottom|}
+\renewcommand{\egap}{3}
+\efronsbox
+\renewcommand{\boxtext}{\scheme|gamma|}
+\rengine
+\blankup\Move(\hbxwd,-\qbxwd)
+\namebox(\scheme|beta|)
+\renewcommand{\boxtext}{\schemeresult|one|}
+\consbox
+\rightsolid
+\namebox(\scheme|gamma|)
+\renewcommand{\boxtext}{\schemeresult|two|}
+\fronsbox
+\renewcommand{\egap}{6}
+\renewcommand{\boxtext}{$\iota_3$}
+\rengine
+\EndDraw
+\end{picture}
+\end{schemeregion}
+
+\begin{schemeregion}
+\begin{picture}(80,0)(-180,-60)
+\Draw\PenSize(1pt)
+\namefig(e,40,60)
+\namebox(\scheme|alpha|)
+\renewcommand{\boxtext}{\schemeresult|one|}
+\consbox\downsolid
+\renewcommand{\boxtext}{\schemeresult|two|}
+\consbox\downsolid
+\renewcommand{\boxtext}{\scheme|bottom|}
+\renewcommand{\egap}{6}
+\efronsbox \rightupdoublelonger
+\blankup \blankleft
+\Move(-\qbxwd,0)
+\namebox(\scheme|beta|)
+\renewcommand{\boxtext}{\schemeresult|one|}
+\consbox \rightsolid
+\namebox(\scheme|gamma|)
+\renewcommand{\boxtext}{\schemeresult|two|}
+\fronsbox
+\renewcommand{\boxtext}{$\iota_3$}
+\lengine
+\EndDraw
+\end{picture}
+\end{schemeregion}
+
+\vspace{25pt}
+\caption{Fern $\alpha$ after construction (a); after $\beta$ in the cdr of $\alpha$ has been evaluated (b); after $1$ from the car of $\beta$ has been promoted to the car of $\alpha$, resulting in a shared tagged engine (c); after the shared engine is run, while evaluating ({\it{cadr$_\perp$} $\beta$}), to produce a fern $\gamma$ (d); after $2$ from the car of $\gamma$ has been promoted to the cadr of \mbox{$\alpha$ (e)}.\label{fig:sk}}
+\end{figure}
+
+\noindent Figure~\ref{fig:sk}a shows \scheme|alpha| immediately after
+it has been constructed, with engines delaying evaluation of
+\scheme|bottom| and \scheme|beta|. In evaluating \mbox{\scheme|(fcar alpha)|}, 
+the engine for \scheme|beta| finishes, resulting in
+Figure~\ref{fig:sk}b. \scheme|beta| can now participate in the race
+for \scheme|(fcar alpha)|. Suppose the value \scheme|1| found in the
+car of \scheme|beta| is chosen and promoted. The result is Figure~\ref{fig:sk}c, in which the engine
+delaying \mbox{\scheme|(ints-bottom 2)|} is shared by both \scheme|beta| and
+the cdr of \scheme|alpha|. \scheme|(fcadr beta)| forces calculation of
+\mbox{\scheme|(ints-bottom 2)|}, which results in a fern, \scheme|gamma|, whose
+first value (in this example) is \scheme|2|. Figure~\ref{fig:sk}d now
+shows why \scheme|coax-d| updates the current pair (\scheme|beta|)
+and creates a new dummy engine with the calculated value (\scheme|gamma|):
+the cddr of \scheme|alpha| needs the new engine to avoid recalculation
+of \mbox{\scheme|(ints-bottom 2)|}. In Figure~\ref{fig:sk}e when \mbox{\scheme|(fcadr alpha)|}
+is evaluated, the value \scheme|2|, calculated already by
+\mbox{\scheme|(fcadr beta)|}, is promoted and the engine delaying
+\mbox{\scheme|(ints-bottom 3)|} is shared by both \scheme|alpha| and \scheme|beta|.

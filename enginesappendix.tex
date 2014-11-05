@@ -1,0 +1,25 @@
+\chapter{Nestable Engines}\label{nestable-engines}
+
+Our implementation of ferns in Chapter~\ref{fernsimpl} requires
+nestable engines \cite{RDybvi89,hieb94subcontinuations}, which we
+present here with minimal comment.  The implementation uses a global
+variable, \scheme|state|, which holds two values: the number of ticks
+available to the currently running engine or \scheme|#f| representing
+infinity; and a continuation. \scheme|make-engine| makes an engine out
+of a thunk.  \scheme|engine| is a macro that makes an engine from an
+expression.  \scheme|timed-lambda| is like \scheme|lambda| except that
+it passes its body as a thunk to \scheme|expend-tick-to-call|, which
+ensures a tick is spent before the body is evaluated and passes the
+suspended body to the continuation if no ticks are available. Programs
+that use this embedding of nestable engines (and by extension our
+embedding of \scheme|frons|) should not use \scheme|call/cc|, because
+the uses of \scheme|call/cc| in the nestable engines implementation
+may interact with other uses in ways that are difficult for the
+programmer to predict.
+
+%\newpage
+%\enlargethispage{30pt}
+\schemedisplayspace
+\schemeinput{fernscode/coaxappendix.ss}
+
+\schemeinput{fernscode/appendix-extra.ss}

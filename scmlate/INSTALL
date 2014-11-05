@@ -1,0 +1,16 @@
+scmxlate
+INSTALL
+(c) Dorai Sitaram
+
+-
+
+Download the scmxlate distribution from
+http://www.ccs.neu.edu/~dorai/scmxlate/scmxlate.html
+(the download link immediately follows the title).
+
+scmxlate is supplied as a gzipped, tar file
+scmxlate.tar.gz.  Unpack it in a directory of your
+choice, producing a subdirectory scmxlate .
+
+Make a note of the full pathname of the file
+scmxlate.scm in that directory. 

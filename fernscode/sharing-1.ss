@@ -1,0 +1,5 @@
+(let ((delta (frons (! 6) '())))
+  (let ((gamma (frons (! 3) delta)))
+    (let ((beta (frons (! 5) gamma)))
+      (let ((alpha (frons bottom beta)))
+        (list (take-bottom 3 alpha) (take-bottom 3 beta) (take-bottom 2 gamma) (take-bottom 1 delta))))))

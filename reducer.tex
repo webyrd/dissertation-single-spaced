@@ -1,0 +1,1149 @@
+\chapter{Applications IV:  PLT-Redex-Style Reducer}\label{reducerchapter}
+
+Robby's grammar for extended version of $\lambda_v$, using PLT Redex syntax:
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define-language lambdav
+  (e (e e ...) (if0 e e e) x v)
+  (v (lambda (x ...) e) number +)
+  (E (v ... E e ...) (if0 E e e) hole)
+  (x (variable-except lambda + if0)))
+\end{schemedisplay}
+
+simimar in spirit to BNF
+
+Robby's reduction rules:
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define red
+  (reduction-relation
+   lambdav
+   (--> (in-hole E (+ number_1 number_2))
+        (in-hole E ,(+ (term number_1) (term number_2)))
+        "+")
+   (--> (in-hole E (if0 0 e_1 e_2))
+        (in-hole E e_1)
+        "if0t")
+   (--> (in-hole E (if0 number_1 e_1 e_2))
+        (in-hole E e_2)
+        "if0f"
+        (side-condition (not (= 0 (term number_1)))))
+   (--> (in-hole E ((lambda (x ..._1) e) v ..._1))
+        (in-hole E (subst-n (x v) ... e))
+        "betav")))
+\end{schemedisplay}
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define-metafunction lambdav
+  subst-n : (x any) ... any -> any
+  [(subst-n (x_1 any_1) (x_2 any_2) ... any_3)
+   (subst x_1 any_1 (subst-n (x_2 any_2) ... any_3))]
+  [(subst-n any_3) any_3])
+\end{schemedisplay}
+
+% \schemedisplayspace
+% \begin{schemedisplay}
+% (define-metafunction lambdav
+%   subst : x any any -> any
+%   ;; 1. x_1 bound, so don't continue in lambda body
+%   [(subst x_1 any_1 (lambda (x_2 ... x_1 x_3 ...) any_2))
+%    (lambda (x_2 ... x_1 x_3 ...) any_2)
+%    (side-condition (not (member (term x_1) (term (x_2 ...)))))]
+%   ;; 2. general purpose capture avoiding case
+%   [(subst x_1 any_1 (lambda (x_2 ...) any_2))
+%    ,(term-let ([(x_new ...)
+%                 (variables-not-in (term (x_1 any_1 any_2)) 
+%                                   (term (x_2 ...)))])
+%               (term 
+%                (lambda (x_new ...) 
+%                  (subst x_1 any_1 (subst-vars (x_2 x_new) ... any_2)))))]
+%   ;; 3. replace x_1 with e_1
+%   [(subst x_1 any_1 x_1) any_1]
+%   ;; 4. x_1 and x_2 are different, so don't replace
+%   [(subst x_1 any_1 x_2) x_2]
+%   ;; the last two cases cover all other expression forms
+%   [(subst x_1 any_1 (any_2 ...))
+%    ((subst x_1 any_1 any_2) ...)]
+%   [(subst x_1 any_1 any_2) any_2])
+% \end{schemedisplay}
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define-metafunction lambdav
+  subst-vars : (x any) ... any -> any
+  [(subst-vars (x_1 any_1) x_1) any_1]
+  [(subst-vars (x_1 any_1) (any_2 ...)) ((subst-vars (x_1 any_1) any_2) ...)]
+  [(subst-vars (x_1 any_1) any_2) any_2]
+  [(subst-vars (x_1 any_1) (x_2 any_2) ... any_3) 
+   (subst-vars (x_1 any_1) (subst-vars (x_2 any_2) ... any_3))]
+  [(subst-vars any) any])
+\end{schemedisplay}
+
+\schemedisplayspace
+\begin{schemedisplay}
+ (traces red
+          (term 
+           ((lambda (n) 
+              (if0 
+               n
+               1
+               ((lambda (x) (x x)) 
+                (lambda (x) (x x)))))
+            (+ 2 2))))
+\end{schemedisplay}
+
+This expression reduces to omega, and therefore has no normal form.
+PLT Redex is smart enough to reach a fixed point in this case.  This
+is an example where tabling would really help.
+
+% alphaKanren version of lam-v
+
+% William E. Byrd
+% 11 October 2007
+
+% Translated from lam-v.ss, and the lam-v example from Robby Findler's PLT Redex website:
+
+%   http://www.cs.uchicago.edu/~robby/plt-redex/
+
+% Uses the 'substo' relation adapted from Cheney and Urban:
+
+% $\alpha${Prolog}: {A} Logic Programming Language with Names, Binding and $\alpha$-Equivalence
+% ICLP, 2004
+
+% May wish to add sub1 back again, although this slows down the tests.
+% The sub1 code is in the with-sub1.scm file in ~//iu/mk/alphamk/plt-redex/.
+
+% May wish to rewrite using ulambda macro, with @a extension for
+% introducing noms.
+
+% Test 12r seems to diverge when replacing conda with conde in
+% safe-fully-reduceo.  Does tabling solve this problem?
+% (Unfortunately, must combine tabling with nominal
+% unification/constraints.)  Disequality constraints should solve the
+% problem.
+
+% See if I can run Robby's 'triangle' test that uses the Y-combinator.
+% Perhaps triangular unification is fast enough.
+
+% Also, give these test for Ramana for benchmarking.
+
+
+
+% Email I sent to Robby Findler, 12 October 2007
+
+% Hi Robby!
+
+% Last night I decided it would be fun to implement the lambda_v
+% example on your website in alphaKanren.  alphaKanren extends
+% miniKanren with nominal unification, which makes implementing capture-
+% avoiding substitution very easy;  otherwise, the attached code is
+% written in a pure subset of miniKanren, without cuts, var tests, or
+% other non-logical operators.  I did use a single occurrence of the
+% conda "committed choice" operator, but this use is guaranteed to be
+% safe, and could easily be replaced by a disequality constraint.
+
+% The code passes all of the tests in lam_v.ss, with the exception of
+% the 'triangle' test that uses the Y-combinator.  I think that this
+% test terminates, but it runs *very* slowly.  Unfortunately, nominal
+% unification is expensive.
+
+% Now for the fun stuff.  Since the reduction relation is a true
+% relation, we can run it "backwards".  For example, here are 15
+% expressions that reduce to the number 5:
+
+% (test "backwards-1"
+
+%   (run 15 (q)
+%     (fully-reduceo q `(num ,(build-num 5))))
+
+%   `((num (1 0 1))                                          ; 5
+%     (+ (num (1 0 1)) (num ()))                      ; (+ 5 0)
+%     (+ (num ()) (num (1 0 1)))                      ;  (+ 0 5)
+%     (+ (num (1)) (num (0 0 1)))                    ; (+ 1 4)
+%     (if-tag (num ()) (num (1 0 1)) (var-tag _.0))    ; (if-tag 0 5 x), for any
+% variable x
+%     (+ (num (0 0 1)) (num (1)))                    ; (+ 4 1)
+%     (if-tag (num ()) (num (1 0 1)) (num _.0))   ; (if-tag 0 5 n), for any
+% number n
+%     (app (lam (tie-tag x.0 (var-tag x.0))) (num (1 0 1)))   ; ((lambda x
+% x) 5)
+%     (if-tag (num (_.0 . _.1)) (var-tag _.2) (num (1 0 1)))       ; (if-tag n x
+% 5), for any positive number n and any variable x
+%     (+ (num (1 1)) (num (0 1)))                                    ;
+% (+ 3 2)
+%     (app (lam (tie-tag x.0 (var-tag x.0))) (+ (num (1 0 1)) (num
+% ())))   ; ((lambda x x) (+ 5 0))
+%     (app (lam (tie-tag x.0 (num (1 0 1)))) (num _.0))   ; ((lambda x
+% 5) n),  for any number n
+%     (if-tag (num (_.0 . _.1)) (num _.2) (num (1 0 1)))        ; (if-tag n
+% m 5), for any positive number n, and any number m
+%     (if-tag (num ()) (num (1 0 1)) (lam (tie-tag x.0 (var-tag _.0))))   ;
+% (if-tag 0 5 (lambda (x) y)) for any variable y
+%     (+ (num (0 1)) (num (1 1)))))       ; (+ 2 3)
+
+% Anyway, I thought you might get a kick out of the code.  I've only
+% tested this implementation under Chez Scheme--once again, some of the
+% tests run very slowly, even with all of Kent's optimizations turned on.
+
+% See you tomorrow!
+
+% Cheers,
+
+% --Will
+
+
+
+% Email to Dan, the following day.
+
+% The version I sent Robby has a single conda, which abides by the
+% G-rule, and is therefore provably safe.  Also, this single conda
+% could be replaced by a disequality constraint.  Furthermore, the
+% conda is only used to detect when the reduced term is equal to the
+% previous term, in which case the reducer terminates instead of
+% diverging.
+
+% --Will
+
+
+
+% Email from Dan
+
+% Will,
+
+% Here's a question for you.  The great advantage of redex is
+% that you can use it interactively.  How much effort would it
+% take to do that.  So, we get one-step and fully, but suppose
+% after one-step, I want to continue with another step.  Would 
+% that be tricky because we always reify?  Would we need an
+% "unreify".  That should be easy to write.  Or can we just get
+% by returning a data structure that allows for communication
+% back to the stream of answers. 
+
+% My "Neat" was "Hey that's neat that you could do it; not
+% wow, you did that in a neat way.  Now, that I have studied (read) the
+% code, I would be willing to ask Robby (or Matthias) if they would 
+% like a contribution based on this for their book if you want me to.
+% It may be too late, but it would be the best thing in their book :).
+
+% Doing what you did IS exactly why I entered this phase of my
+% research.  I wanted to be able to take "The rules" and just 
+% run them, and that is exactly what you did.
+
+% Kudos, but I wonder how much we owe to the |alpha| folks.
+% Writing this up is worth the time.  "Running \-v backwards using
+% \ak", but right now, I am anxious to see the final version of 
+% @o.
+
+% I wonder if there is not some better way to do fix than the Y
+% combinator.  Harper's way (from his notes) might be better.
+
+% ... Dan
+
+
+% (load "alphamk.scm")
+
+% (define-syntax test
+%   (syntax-rules ()
+%     ((_ title tested-expression expected-result)
+%      (let* ((expected expected-result)
+%             (produced tested-expression))
+%        (if-tag (equal? expected produced)
+%            (printf "~s works!\n" title)
+%            (error
+%             'test
+%             "Failed ~s: ~a\nExpected: ~a\nComputed: ~a"
+%             title 'tested-expression expected produced))))))
+
+% (define-syntax test-divergence
+%   (syntax-rules ()
+%     ((_ title tested-expression)
+%      (let ((max-ticks 1000000))
+%        (printf "Testing ~s (engine with ~s ticks fuel)\n" title max-ticks)
+%        ((make-engine (lambda () tested-expression))
+%         max-ticks
+%         (lambda (t v)
+% 	  (error title "infinite loop returned ~s after ~s ticks" v (- max-ticks t)))
+%         (lambda (e^) (void)))))))
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define valueo
+  (lambda (v)
+    (conde
+      ((exist (n)
+         (== `(num ,n) v)))
+      ((exist (e)
+         (fresh (x)
+           (== `(lam ,(tie x e)) v)
+           (expressiono e)))))))
+\end{schemedisplay}
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define expressiono
+  (lambda (e)
+    (conde
+      ((valueo e))
+      ((exist (x)
+         (== `(var-tag ,x) e)))
+      ((exist (e1 e2)
+         (== `(app ,e1 ,e2) e)
+         (expressiono e1)
+         (expressiono e2)))
+      ((exist (e1 e2)
+         (== `(+ ,e1 ,e2) e)
+         (expressiono e1)
+         (expressiono e2)))
+      ((exist (e1 e2 e3)
+         (== `(if-tag ,e1 ,e2 ,e3) e)
+         (expressiono e1)
+         (expressiono e2)
+         (expressiono e3))))))
+\end{schemedisplay}
+
+% \schemedisplayspace
+% \begin{schemedisplay}
+% '(define contexto
+%   (lambda (t out)
+%     (conde
+%       ((in-holeo t out))
+%       ((exist (C e v)
+%          (== `(app ,C ,e) t)
+%          (== `(app ,v ,e) out)
+%          (expressiono e)
+%          (contexto C v)))
+%       ((exist (C v v^)
+%          (== `(app ,v ,C) t)
+%          (== `(app ,v ,v^) out)
+%          (valueo v)
+%          (contexto C v^)))
+%       ((exist (C e v)
+%          (== `(+ ,C ,e) t)
+%          (== `(+ ,v ,e) out)
+%          (expressiono e)
+%          (contexto C v)))
+%       ((exist (C v v^)
+%          (== `(+ ,v ,C) t)
+%          (== `(+ ,v ,v^) out)
+%          (valueo v)
+%          (contexto C v^)))
+%       ((exist (C e1 e2 v)
+%          (== `(if-tag ,C ,e1 ,e2) t)
+%          (== `(if-tag ,v ,e1 ,e2) out)
+%          (expressiono e1)
+%          (expressiono e2)
+%          (contexto C v))))))
+% \end{schemedisplay}
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define contexto
+  (lambda (t out)
+    (conde
+      ((in-holeo t out))
+      ((exist (C e v)
+         (== `(app ,C ,e) t)
+         (== `(app ,v ,e) out)
+         (expressiono e)
+         (contexto C v)))
+      ((exist (C v v^)
+         (== `(app ,v ,C) t)
+         (== `(app ,v ,v^) out)
+         (valueo v)
+         (contexto C v^)))
+      ((exist (C e v)
+         (== `(+ ,C ,e) t)
+         (== `(+ ,v ,e) out)
+         (expressiono e)
+         (contexto C v)))
+      ((exist (C v v^)
+         (== `(+ ,v ,C) t)
+         (== `(+ ,v ,v^) out)
+         (valueo v)
+         (contexto C v^)))
+      ((exist (C e1 e2 v)
+         (== `(if-tag ,C ,e1 ,e2) t)
+         (== `(if-tag ,v ,e1 ,e2) out)
+         (expressiono e1)
+         (expressiono e2)
+         (contexto C v))))))
+\end{schemedisplay}
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define one-stepo
+  (lambda (t out)
+    (contexto t out)))
+\end{schemedisplay}
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define fully-reduceo
+  (lambda (t out)
+    (exist (res)
+      (conde
+        ((contexto t res)
+         (fully-reduceo res out))
+        ((== t out) (valueo t))))))
+\end{schemedisplay}
+
+% \schemedisplayspace
+% \begin{schemedisplay}
+% '(define safe-fully-reduceo
+%   (lambda (t out)
+%     (exist (res)
+%       (conde
+%         ((contexto t res)
+%          ; This nested conda could be replaced with a disequality
+%          ; constraint.  This conda is safe, however, since t and res
+%          ; do not become more instantiated in the conda test.
+%          ; (Actually, is this true?  I'm not sure of this, since fresh
+%          ; variables in t could become associated with fresh variables
+%          ; in res.  I could try to verify this claim.  But better to
+%          ; use =/= or tabling.)
+%          (conda
+%            ((== t res) (== res out))
+%            ((== #t #t) (safe-fully-reduceo res out))))
+%         ((== t out) (valueo t))))))
+% \end{schemedisplay}
+
+% \schemedisplayspace
+% \begin{schemedisplay}
+% '(define safe-fully-reduceo
+%   (lambda (t out)
+%     (exist (res)
+%       (conde
+%         ((contexto t res)
+%          (conde
+%            ((== t res) (== res out))
+%            ; If we added disequality constraints to alphaKanren, we
+%            ; could write this.
+%            ((=/= t res) (safe-fully-reduceo res out))))
+%         ((== t out) (valueo t))))))
+% \end{schemedisplay}
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define safe-fully-reduceo
+  (lambda (t out)
+    (exist (res)
+      (conde
+        ((contexto t res)
+         (conde
+           ((== t res) (== res out))
+           ; I *think* tabling would be sufficient to prevent
+           ; divergence and duplicate answers.
+           ((safe-fully-reduceo res out))))
+        ((== t out) (valueo t))))))
+\end{schemedisplay}
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define in-holeo
+  (lambda (t out)
+    (conde
+      ((exist (n1 n2 sum)
+         (== `(+ (num ,n1) (num ,n2)) t)
+         (== `(num ,sum) out)
+         (pluso n1 n2 sum)))
+      ((exist (e1 e2)
+         (== `(if-tag (num ,(build-num 0)) ,e1 ,e2) t)
+         (== e1 out)
+         (expressiono e1)
+         (expressiono e2)))
+      ((exist (n e1 e2)
+         (== `(if-tag (num ,n) ,e1 ,e2) t)
+         (== e2 out)
+         (poso n)
+         (expressiono e1)
+         (expressiono e2)))
+      ((exist (e v s)
+         (fresh (x)
+           (== `(app (lam ,(tie x e)) ,v) t)
+           (valueo v)
+           (expressiono e)
+           (substo e v x out)))))))
+\end{schemedisplay}
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define substo
+  (lambda (e new a out)
+    (conde
+      ((== `(var-tag ,a) e) (== new out))
+      ((exist (y)
+         (== `(var-tag ,y) e)
+         (== `(var-tag ,y) out)
+         (hash a y)))
+      ((exist (n)
+         (== `(num ,n) e)
+         (== `(num ,n) out)))
+      ((exist (rator ratorres rand randres)
+         (== `(app ,rator ,rand) e)
+         (== `(app ,ratorres ,randres) out)
+         (substo rator new a ratorres)
+         (substo rand new a randres)))
+      ((exist (e1 e1res e2 e2res)
+         (== `(+ ,e1 ,e2) e)
+         (== `(+ ,e1res ,e2res) out)
+         (substo e1 new a e1res)
+         (substo e2 new a e2res)))
+      ((exist (e1 e1res e2 e2res e3 e3res)
+         (== `(if-tag ,e1 ,e2 ,e3) e)
+         (== `(if-tag ,e1res ,e2res ,e3res) out)
+         (substo e1 new a e1res)
+         (substo e2 new a e2res)
+         (substo e3 new a e3res)))      
+      ((exist (body bodyres)
+         (fresh (c)
+           (== `(lam ,(tie c body)) e)
+           (== `(lam ,(tie c bodyres)) out)
+           (hash c a)
+           (hash c new)
+           (substo body new a bodyres)))))))
+\end{schemedisplay}
+
+% ;;; Standard relational arithmetic helpers.
+
+% (define build-num
+%   (lambda (n)
+%     (cond
+%       ((zero? n) '())
+%       ((and (not (zero? n)) (even? n))
+%        (cons 0
+%          (build-num (quotient n 2))))
+%       ((odd? n)
+%        (cons 1
+%          (build-num (quotient (- n 1) 2)))))))
+
+% (define poso
+%   (lambda (n)
+%     (exist (a d)
+%       (== `(,a . ,d) n))))
+
+% (define >1o
+%   (lambda (n)
+%     (exist (a ad dd)
+%       (== `(,a ,ad . ,dd) n))))
+
+% (define pluso
+%   (lambda (n m k)
+%     (addero 0 n m k)))
+
+% (define addero
+%   (lambda (d n m r)
+%     (conde
+%       ((== 0 d) (== '() m) (== n r))
+%       ((== 0 d) (== '() n) (== m r)
+%        (poso m))
+%       ((== 1 d) (== '() m)
+%        (addero 0 n '(1) r))
+%       ((== 1 d) (== '() n) (poso m)
+%        (addero 0 '(1) m r))
+%       ((== '(1) n) (== '(1) m)
+%        (exist (a c)
+%          (== `(,a ,c) r)
+%          (full-addero d 1 1 a c)))
+%       ((== '(1) n) (gen-addero d n m r))
+%       ((== '(1) m) (>1o n) (>1o r)
+%        (addero d '(1) n r))
+%       ((>1o n) (gen-addero d n m r)))))
+
+% (define full-addero
+%   (lambda (b x y r c)
+%     (conde
+%       ((== 0 b) (== 0 x) (== 0 y) (== 0 r) (== 0 c))
+%       ((== 1 b) (== 0 x) (== 0 y) (== 1 r) (== 0 c))
+%       ((== 0 b) (== 1 x) (== 0 y) (== 1 r) (== 0 c))
+%       ((== 1 b) (== 1 x) (== 0 y) (== 0 r) (== 1 c))
+%       ((== 0 b) (== 0 x) (== 1 y) (== 1 r) (== 0 c))
+%       ((== 1 b) (== 0 x) (== 1 y) (== 0 r) (== 1 c))
+%       ((== 0 b) (== 1 x) (== 1 y) (== 0 r) (== 1 c))
+%       ((== 1 b) (== 1 x) (== 1 y) (== 1 r) (== 1 c)))))
+
+% (define gen-addero
+%   (lambda (d n m r)
+%     (exist (a b c e x y z)
+%       (== `(,a . ,x) n)
+%       (== `(,b . ,y) m) (poso y)
+%       (== `(,c . ,z) r) (poso z)
+%       (full-addero d a b c e)
+%       (addero e x y z))))
+
+
+% ;;; Diverges when using conde instead of conda in safe-fully-reduceo.
+% ;;; (Since this is omega!)
+% ;;; Should converge with =/=, and I think would converge with tabling.
+% (test "12r"
+%   (run* (q)
+%     (fresh (x)
+%       (safe-fully-reduceo `(app (lam ,(tie x `(app (var-tag ,x) (var-tag ,x))))
+%                                 (lam ,(tie x `(app (var-tag ,x) (var-tag ,x)))))
+%                           q)))
+%   '((app (lam (tie-tag x.0 (app (var-tag x.0) (var-tag x.0)))) (lam (tie-tag x.0 (app (var-tag x.0) (var-tag x.0)))))))
+% #!eof
+
+% ;;; Tests
+
+% (test "1"
+%   ; Can't reduce a number.
+%   (run* (q)
+%     (one-stepo `(num ,(build-num 5)) q))
+%   '())
+
+% (test "2"
+%   (run* (q)
+%     (one-stepo `(+ (num ,(build-num 5)) (num ,(build-num 3))) q))
+%   '((num (0 0 0 1))))
+
+% (test "3"
+%   (run* (q)
+%     (one-stepo `(if-tag (num ,(build-num 3)) (num ,(build-num 4)) (num ,(build-num 5))) q))
+%   '((num (1 0 1))))
+
+% (test "4"
+%   (run* (q)
+%     (one-stepo `(if-tag (num ,(build-num 0)) (num ,(build-num 4)) (num ,(build-num 5))) q))
+%   '((num (0 0 1))))
+
+% (test "5"
+%   (run* (q)
+%     (one-stepo `(if-tag (+ (num ,(build-num 5)) (num ,(build-num 3)))
+%                      (num ,(build-num 4))
+%                      (num ,(build-num 5))) q))
+%   '((if-tag (num (0 0 0 1)) (num (0 0 1)) (num (1 0 1)))))
+
+% (test "6"
+%   (run* (q)
+%     (one-stepo `(if-tag (+ (num ,(build-num 0)) (num ,(build-num 0)))
+%                      (num ,(build-num 4))
+%                      (num ,(build-num 5))) q))
+%   '((if-tag (num ()) (num (0 0 1)) (num (1 0 1)))))
+
+
+% (test "1r"
+%   (run* (q)
+%     (fully-reduceo `(num ,(build-num 5)) q))
+%   '((num (1 0 1))))
+
+% (test "2r"
+%   (run* (q)
+%     (fully-reduceo `(+ (num ,(build-num 5)) (num ,(build-num 3))) q))
+%   '((num (0 0 0 1))))
+
+% (test "3r"
+%   (run* (q)
+%     (fully-reduceo `(if-tag (num ,(build-num 3)) (num ,(build-num 4)) (num ,(build-num 5))) q))
+%   '((num (1 0 1))))
+
+% (test "4r"
+%   (run* (q)
+%     (fully-reduceo `(if-tag (num ,(build-num 0)) (num ,(build-num 4)) (num ,(build-num 5))) q))
+%   '((num (0 0 1))))
+
+% (test "5r"
+%   (run* (q)
+%     (fully-reduceo `(if-tag (+ (num ,(build-num 5)) (num ,(build-num 3)))
+%                          (num ,(build-num 4))
+%                          (num ,(build-num 5))) q))
+%   '((num (1 0 1))))
+
+% (test "6r"
+%   (run* (q)
+%     (fully-reduceo `(if-tag (+ (num ,(build-num 0)) (num ,(build-num 0)))
+%                          (num ,(build-num 4))
+%                          (num ,(build-num 5))) q))
+%   '((num (0 0 1))))
+
+% (test "7r"
+%   (run* (q)
+%     (fresh (x)
+%       (fully-reduceo `(lam ,(tie x `(num ,(build-num 3)))) q)))
+%   '((lam (tie-tag x.0 (num (1 1))))))
+
+% (test "8r"
+%   (run* (q)
+%     (fresh (x)
+%       (fully-reduceo `(app (lam ,(tie x `(num ,(build-num 3)))) (num ,(build-num 4))) q)))
+%   '((num (1 1))))
+
+% (test "9r"
+%   (run* (q)
+%     (fresh (x)
+%       (fully-reduceo `(app (lam ,(tie x `(var-tag ,x))) (num ,(build-num 4))) q)))
+%   '((num (0 0 1))))
+
+% (test "10r"
+%   (run* (q)
+%     (fresh (x)
+%       (fully-reduceo `(app (lam ,(tie x `(if-tag (var-tag ,x)
+%                                               (num ,(build-num 3))
+%                                               (num ,(build-num 4)))))
+%                            (num ,(build-num 5)))
+%                      q)))
+%   `((num ,(build-num 4))))
+
+% (test "substo-1"
+%   (run* (q)
+%     (fresh (x)
+%       (substo `(if-tag (var-tag ,x)
+%                     (num ,(build-num 3))
+%                     (num ,(build-num 4)))
+%               `(num ,(build-num 5))
+%               x              
+%               q)))
+%   `((if-tag (num ,(build-num 5))
+%          (num ,(build-num 3))
+%          (num ,(build-num 4)))))
+
+% (test "in-holeo-1"
+%   (run* (q)
+%     (fresh (x)
+%       (in-holeo `(app (lam ,(tie x `(var-tag ,x))) (num ,(build-num 4))) q)))
+%   `((num ,(build-num 4))))
+
+% (test "11r"
+%   (run* (q)
+%     (fresh (x)
+%       (fully-reduceo `(app (lam ,(tie x `(if-tag (var-tag ,x)
+%                                               (num ,(build-num 3))
+%                                               (num ,(build-num 4)))))
+%                            (num ,(build-num 0)))
+%                      q)))
+%   `((num ,(build-num 3))))
+
+% ;;; Diverges when using conde instead of conda in safe-fully-reduceo.
+% ;;; (Since this is omega!)
+% ;;; Should converge with =/=, and I think would converge with tabling.
+% (test "12r"
+%   (run* (q)
+%     (fresh (x)
+%       (safe-fully-reduceo `(app (lam ,(tie x `(app (var-tag ,x) (var-tag ,x))))
+%                                 (lam ,(tie x `(app (var-tag ,x) (var-tag ,x)))))
+%                           q)))
+%   '((app (lam (tie-tag x.0 (app (var-tag x.0) (var-tag x.0)))) (lam (tie-tag x.0 (app (var-tag x.0) (var-tag x.0)))))))
+
+% (test "13r"
+%   (run* (q)
+%     (fresh (x y)
+%       (one-stepo `(app (lam ,(tie x `(app (var-tag ,x) (var-tag ,x))))
+%                        (lam ,(tie y `(app (var-tag ,y) (var-tag ,y)))))
+%                  q)))
+%   '((app (lam (tie-tag y.0 (app (var-tag y.0) (var-tag y.0)))) (lam (tie-tag y.0 (app (var-tag y.0) (var-tag y.0)))))))
+
+% (test "14r"
+%   (run* (q)
+%     (fresh (x)
+%       (one-stepo `(app (lam ,(tie x `(app (var-tag ,x) (var-tag ,x))))
+%                        (lam ,(tie x `(app (var-tag ,x) (var-tag ,x)))))
+%                  q)))
+%   '((app (lam (tie-tag x.0 (app (var-tag x.0) (var-tag x.0)))) (lam (tie-tag x.0 (app (var-tag x.0) (var-tag x.0)))))))
+
+% (test-divergence "15r"
+%   (run 1 (q)
+%     (fresh (x)
+%       (fully-reduceo `(app (lam ,(tie x `(app (var-tag ,x) (var-tag ,x))))
+%                            (lam ,(tie x `(app (var-tag ,x) (var-tag ,x)))))
+%                      q))))
+
+% ; Robby's tests
+
+% (test "Robby-1"
+%   (run* (q)
+%     (fresh (x)
+%       (fully-reduceo `(app (lam ,(tie x `(var-tag ,x))) (num ,(build-num 1))) q)))
+%   `((num ,(build-num 1))))
+
+% (test "Robby-2"
+%   (run* (q)
+%     (fresh (x)
+%       (fully-reduceo `(app (app (lam ,(tie x `(lam ,(tie x `(var-tag ,x)))))
+%                                 (num ,(build-num 1)))
+%                            (num ,(build-num 2)))
+%                      q)))
+%   `((num ,(build-num 2))))
+
+% (test "Robby-3"
+%   (run* (q)
+%     (fresh (x y)
+%       (fully-reduceo `(app (app (lam ,(tie x `(lam ,(tie y `(var-tag ,x)))))
+%                                 (num ,(build-num 1)))
+%                            (num ,(build-num 2)))
+%                      q)))
+%   `((num ,(build-num 1))))
+
+% (test "Robby-4"
+%   (run* (q)
+%     (fresh (x)
+%       (fully-reduceo `(app (lam ,(tie x `(+ (var-tag ,x) (var-tag ,x)))) 
+%                            (num ,(build-num 2)))
+%                      q)))
+%   `((num ,(build-num 4))))
+
+% (test "Robby-5"
+%   (run* (q)
+%     (fresh (x)
+%       (fully-reduceo `(app (lam ,(tie x `(if-tag (var-tag ,x)
+%                                               (var-tag ,x)
+%                                               (+ (var-tag ,x) (num ,(build-num 1)))))) 
+%                            (num ,(build-num 2)))
+%                      q)))
+%   `((num ,(build-num 3))))
+
+% (test "Robby-6"
+%   (run* (q)
+%     (fresh (x)
+%       (fully-reduceo `(app (lam ,(tie x `(if-tag (var-tag ,x)
+%                                               (var-tag ,x)
+%                                               (+ (var-tag ,x) (num ,(build-num 1)))))) 
+%                            (num ,(build-num 0)))
+%                      q)))
+%   `((num ,(build-num 0))))
+
+
+% ;;; Doh!  This example uses negative numbers.
+% ;;; We must add sub1 to the rules to test this example.
+% ;;;
+% ;;; Even with sub1 added, this test takes a *long* time to run
+% ;;; (I assume it isn't diverging, since evaluating tri alone took several minutes on Casper.)
+% '(test "Robby-tough"
+%   (run* (q)
+%     (fresh (le f x triangle)
+%       (let ((tri
+%              `(app (lam ,(tie le `(app (lam ,(tie f `(app (var-tag ,le)
+%                                                           (lam ,(tie x `(app (app (var-tag ,f) (var-tag ,f)) (var-tag ,x)))))))
+%                                        (lam ,(tie f `(app (var-tag ,le)
+%                                                           (lam ,(tie x `(app (app (var-tag ,f) (var-tag ,f)) (var-tag ,x))))))))))
+%                    (lam ,(tie triangle `(lam ,(tie x `(if-tag (var-tag ,x)
+%                                                            (num ,(build-num 0))
+%                                                            (+ (var-tag ,x) (app (var-tag ,triangle)
+%                                                                             (sub1 (var-tag ,x))))))))))))
+%         (one-stepo `(app ,tri (num ,(build-num 5))) q))))
+%   `((num ,(build-num (+ 5 4 3 2 1 0)))))
+
+% (test "Robby-8"
+%   (run* (q)
+%     (fresh (x y)
+%       (substo `(var-tag ,x) `(var-tag ,y) x q)))
+%   '((var-tag y.0)))
+
+% (test "Robby-9"
+%   (run* (q)
+%     (fresh (x y z)
+%       (substo `(var-tag ,z) `(var-tag ,y) x q)))
+%   '((var-tag z.0)))
+
+% (test "Robby-10"
+%   (run* (q)
+%     (fresh (x y z)
+%       (substo `(app (var-tag ,x) (app (var-tag ,y) (var-tag ,z))) `(var-tag ,y) x q)))
+%   '((app (var-tag y.0) (app (var-tag y.0) (var-tag z.0)))))
+
+% (test "Robby-11"
+%   (run* (q)
+%     (fresh (x y y1 z)
+%       (substo `(app (lam ,(tie x `(var-tag ,x)))
+%                     (app (lam ,(tie y1 `(var-tag ,y1)))
+%                          (lam ,(tie x `(var-tag ,z)))))
+%               `(var-tag ,y) x q)))
+%   '((app (lam (tie-tag c.0 (var-tag c.0))) (app (lam (tie-tag c.1 (var-tag c.1))) (lam (tie-tag c.2 (var-tag z.0)))))))
+
+% (test "Robby-12"
+%   (run* (q)
+%     (fresh (x y)
+%       (substo `(if-tag (+ (num ,(build-num 1)) (var-tag ,x)) (var-tag ,x) (var-tag ,x))
+%               `(var-tag ,y) x q)))
+%   `((if-tag (+ (num ,(build-num 1)) (var-tag y.0)) (var-tag y.0) (var-tag y.0))))
+
+% (test "Robby-13"
+%   (run* (q)
+%     (fresh (x y z)
+%       (substo `(lam ,(tie y `(var-tag ,x)))
+%               `(lam ,(tie z `(var-tag ,y))) x q)))
+%   `((lam (tie-tag c.0 (lam (tie-tag z.0 (var-tag y.0)))))))
+
+% (test "Robby-14"
+%   (run* (q)
+%     (fresh (x y z)
+%       (substo `(lam ,(tie y `(var-tag ,x)))
+%               `(num ,(build-num 1)) x q)))
+%   `((lam (tie-tag c.0 (num ,(build-num 1))))))
+
+% (test "Robby-15"
+%   (run* (q)
+%     (fresh (x y z)
+%       (substo `(lam ,(tie y `(var-tag ,x)))
+%               `(var-tag ,y) x q)))
+%   `((lam (tie-tag c.0 (var-tag y.0)))))
+
+% (test "Robby-16"
+%   (run* (q)
+%     (fresh (x y z z2)
+%       (substo `(lam ,(tie z `(app (var-tag ,z2) (var-tag ,z))))
+%               `(lam ,(tie y `(var-tag ,y))) x q)))
+%   `((lam (tie-tag c.0 (app (var-tag z2.0) (var-tag c.0))))))
+
+% (test "Robby-17"
+%   (run* (q)
+%     (fresh (x z z1)
+%       (substo `(lam ,(tie z `(app (var-tag ,z1) (var-tag ,z))))
+%               `(lam ,(tie z `(var-tag ,z))) x q)))
+%   `((lam (tie-tag c.0 (app (var-tag z1.0) (var-tag c.0))))))
+
+% (test "Robby-18"
+%   (run* (q)
+%     (fresh (x z z1)
+%       (substo `(lam ,(tie z `(app (var-tag ,z1) (var-tag ,z))))
+%               `(var-tag ,z) x q)))
+%   `((lam (tie-tag c.0 (app (var-tag z1.0) (var-tag c.0))))))
+
+% (test "Robby-19"
+%   (run* (q)
+%     (fresh (x3 x2)
+%       (substo `(lam ,(tie x2 `(var-tag ,x2)))
+%               `(num ,(build-num 5)) x3 q)))
+%   `((lam (tie-tag c.0 (var-tag c.0)))))
+
+
+% ;;; Robby's main example
+
+% (test "more-Robby-1"
+%   (run* (q)
+%     (fresh (n x)
+%       (one-stepo `(app (lam ,(tie n `(if
+%                                        (var-tag ,n)
+%                                        (num ,(build-num 1))
+%                                        (app (lam ,(tie x `(app (var-tag ,x) (var-tag ,x))))
+%                                             (lam ,(tie x `(app (var-tag ,x) (var-tag ,x))))))))
+%                        (+ (num ,(build-num 2)) (num ,(build-num 2))))
+%                  q)))
+%   '((app (lam (tie-tag
+%              n.0
+%              (if-tag (var-tag n.0)
+%                   (num (1))
+%                   (app (lam (tie-tag x.0 (app (var-tag x.0) (var-tag x.0))))
+%                        (lam (tie-tag x.0 (app (var-tag x.0) (var-tag x.0))))))))
+%       (num (0 0 1)))))
+
+% (test "more-Robby-2"
+%   (run 1 (q)
+%     (fresh (n x)
+%       (safe-fully-reduceo `(app (lam ,(tie n `(if
+%                                                 (var-tag ,n)
+%                                                 (num ,(build-num 1))
+%                                                 (app (lam ,(tie x `(app (var-tag ,x) (var-tag ,x))))
+%                                                      (lam ,(tie x `(app (var-tag ,x) (var-tag ,x))))))))
+%                                 (+ (num ,(build-num 2)) (num ,(build-num 2))))
+%                           q)))
+%   '((app (lam (tie-tag c.0 (app (var-tag c.0) (var-tag c.0)))) (lam (tie-tag c.0 (app (var-tag c.0) (var-tag c.0)))))))
+
+% (test "more-Robby-3"
+%   (run* (q)
+%     (fresh (n x)
+%       (safe-fully-reduceo `(app (lam ,(tie n `(if
+%                                                 (var-tag ,n)
+%                                                 (num ,(build-num 1))
+%                                                 (app (lam ,(tie x `(app (var-tag ,x) (var-tag ,x))))
+%                                                      (lam ,(tie x `(app (var-tag ,x) (var-tag ,x))))))))
+%                                 (+ (num ,(build-num 2)) (num ,(build-num 2))))
+%                           q)))
+%   '((app (lam (tie-tag c.0 (app (var-tag c.0) (var-tag c.0)))) (lam (tie-tag c.0 (app (var-tag c.0) (var-tag c.0)))))))
+
+% (test-divergence "more-Robby-4"
+%   (run 1 (q)
+%     (fresh (n x)
+%       (fully-reduceo `(app (lam ,(tie n `(if
+%                                            (var-tag ,n)
+%                                            (num ,(build-num 1))
+%                                            (app (lam ,(tie x `(app (var-tag ,x) (var-tag ,x))))
+%                                                 (lam ,(tie x `(app (var-tag ,x) (var-tag ,x))))))))
+%                            (+ (num ,(build-num 2)) (num ,(build-num 2))))
+%                      q))))
+
+% (test "backwards-0"
+%   (run 20 (q)
+%     (one-stepo q `(num ,(build-num 5))))
+%   `((+ (num (1 0 1)) (num ()))
+%     (+ (num ()) (num (1 0 1)))
+%     (+ (num (1)) (num (0 0 1)))
+%     (if-tag (num ()) (num (1 0 1)) (var-tag _.0))
+%     (if-tag (num ()) (num (1 0 1)) (num _.0))
+%     (+ (num (0 0 1)) (num (1)))
+%     (+ (num (1 1)) (num (0 1)))
+%     (+ (num (0 1)) (num (1 1)))
+%     (if-tag (num ()) (num (1 0 1)) (lam (tie-tag x.0 (var-tag _.0))))
+%     (if-tag (num ()) (num (1 0 1)) (lam (tie-tag x.0 (num _.0))))
+%     (app (lam (tie-tag x.0 (var-tag x.0))) (num (1 0 1)))
+%     (if-tag (num (_.0 . _.1)) (var-tag _.2) (num (1 0 1)))
+%     (if-tag (num (_.0 . _.1)) (num _.2) (num (1 0 1)))
+%     (if-tag (num ()) (num (1 0 1)) (lam (tie-tag x.0 (lam (tie-tag x.1 (var-tag _.0))))))
+%     (if-tag (num ()) (num (1 0 1)) (lam (tie-tag x.0 (lam (tie-tag x.1 (num _.0))))))
+%     (app (lam (tie-tag x.0 (num (1 0 1)))) (num _.0))
+%     (if-tag (num ()) (num (1 0 1)) (app (var-tag _.0) (var-tag _.1)))
+%     (if-tag (num ()) (num (1 0 1)) (app (var-tag _.0) (num _.1)))
+%     (if-tag (num (_.0 . _.1)) (lam (tie-tag x.0 (var-tag _.2))) (num (1 0 1)))
+%     (if-tag (num ()) (num (1 0 1))
+%          (lam (tie-tag x.0 (lam (tie-tag x.1 (lam (tie-tag x.2 (var-tag _.0))))))))))
+
+% (test "generate-0"
+%   (run 20 (q)
+%     (exist (e v)
+%       (one-stepo e v)
+%       (== `(,e ,v) q)))
+%   `(((+ (num _.0) (num ())) (num _.0))
+%     ((+ (num ()) (num (_.0 . _.1))) (num (_.0 . _.1)))
+%     ((+ (num (1)) (num (1))) (num (0 1)))
+%     ((+ (num (1)) (num (0 _.0 . _.1))) (num (1 _.0 . _.1)))
+%     ((app (+ (num _.0) (num ())) (var-tag _.1)) (app (num _.0) (var-tag _.1)))
+%     ((if-tag (num ()) (var-tag _.0) (var-tag _.1)) (var-tag _.0))
+%     ((if-tag (num ()) (var-tag _.0) (num _.1)) (var-tag _.0))
+%     ((+ (num (1)) (num (1 1))) (num (0 0 1)))
+%     ((app (+ (num _.0) (num ())) (num _.1)) (app (num _.0) (num _.1)))
+%     ((app (num _.0) (+ (num _.1) (num ()))) (app (num _.0) (num _.1)))
+%     ((app (+ (num ()) (num (_.0 . _.1))) (var-tag _.2)) (app (num (_.0 . _.1)) (var-tag _.2)))
+%     ((if-tag (num ()) (num _.0) (var-tag _.1)) (num _.0))
+%     ((+ (num (0 _.0 . _.1)) (num (1))) (num (1 _.0 . _.1)))
+%     ((+ (num (1)) (num (1 0 _.0 . _.1))) (num (0 1 _.0 . _.1)))
+%     ((+ (num (0 1)) (num (0 1))) (num (0 0 1)))
+%     ((if-tag (num ()) (num _.0) (num _.1)) (num _.0))
+%     ((app (lam (tie-tag x.0 (var-tag x.0))) (num _.0)) (num _.0))
+%     ((if-tag (num (_.0 . _.1)) (var-tag _.2) (var-tag _.3)) (var-tag _.3))
+%     ((+ (num (1)) (num (1 1 1))) (num (0 0 0 1)))
+%     ((app (+ (num (1)) (num (1))) (var-tag _.0)) (app (num (0 1)) (var-tag _.0)))))
+
+% (test "backwards-1"
+%   (run 20 (q)
+%     (fully-reduceo q `(num ,(build-num 5))))
+%   `((num (1 0 1))
+%     (+ (num (1 0 1)) (num ()))
+%     (+ (num ()) (num (1 0 1)))
+%     (+ (num (1)) (num (0 0 1)))
+%     (if-tag (num ()) (num (1 0 1)) (var-tag _.0))
+%     (+ (num (0 0 1)) (num (1)))
+%     (if-tag (num ()) (num (1 0 1)) (num _.0))
+%     (app (lam (tie-tag x.0 (var-tag x.0))) (num (1 0 1)))
+%     (if-tag (num (_.0 . _.1)) (var-tag _.2) (num (1 0 1)))
+%     (+ (num (1 1)) (num (0 1)))
+%     (app (lam (tie-tag x.0 (var-tag x.0))) (+ (num (1 0 1)) (num ())))
+%     (app (lam (tie-tag x.0 (num (1 0 1)))) (num _.0))
+%     (if-tag (num (_.0 . _.1)) (num _.2) (num (1 0 1)))
+%     (if-tag (num ()) (num (1 0 1)) (lam (tie-tag x.0 (var-tag _.0))))
+%     (+ (num (0 1)) (num (1 1)))
+%     (+ (+ (num (1 0 1)) (num ())) (num ()))
+%     (+ (+ (num ()) (num ())) (num (1 0 1)))
+%     (+ (num (1 0 1)) (+ (num ()) (num ())))
+%     (+ (num ()) (+ (num (1 0 1)) (num ())))
+%     (+ (+ (num (1)) (num ())) (num (0 0 1)))))
+
+% (test "generate-1"
+%   (run 20 (q)
+%     (exist (e v)
+%       (fully-reduceo e v)      
+%       (== `(,e ,v) q)))
+%   `(((num _.0)
+%      (num _.0))
+%     ((lam (tie-tag x.0 (var-tag _.0)))
+%      (lam (tie-tag x.0 (var-tag _.0))))
+%     ((lam (tie-tag x.0 (num _.0)))
+%      (lam (tie-tag x.0 (num _.0))))
+%     ((lam (tie-tag x.0 (lam (tie-tag x.1 (var-tag _.0)))))
+%      (lam (tie-tag x.0 (lam (tie-tag x.1 (var-tag _.0))))))
+%     ((+ (num _.0) (num ()))
+%      (num _.0))
+%     ((lam (tie-tag x.0 (lam (tie-tag x.1 (num _.0)))))
+%      (lam (tie-tag x.0 (lam (tie-tag x.1 (num _.0))))))
+%     ((+ (num ()) (num (_.0 . _.1)))
+%      (num (_.0 . _.1)))
+%     ((lam (tie-tag x.0 (lam (tie-tag x.1 (lam (tie-tag x.2 (var-tag _.0)))))))
+%      (lam (tie-tag x.0 (lam (tie-tag x.1 (lam (tie-tag x.2 (var-tag _.0))))))))
+%     ((lam (tie-tag x.0 (lam (tie-tag x.1 (lam (tie-tag x.2 (num _.0)))))))
+%      (lam (tie-tag x.0 (lam (tie-tag x.1 (lam (tie-tag x.2 (num _.0))))))))
+%     ((lam (tie-tag x.0 (app (var-tag _.0) (var-tag _.1))))
+%      (lam (tie-tag x.0 (app (var-tag _.0) (var-tag _.1)))))
+%     ((+ (num (1)) (num (1)))
+%      (num (0 1)))
+%     ((lam (tie-tag x.0 (app (var-tag _.0) (num _.1))))
+%      (lam (tie-tag x.0 (app (var-tag _.0) (num _.1)))))
+%     ((lam (tie-tag x.0 (lam (tie-tag x.1 (lam (tie-tag x.2 (lam (tie-tag x.3 (var-tag _.0)))))))))
+%      (lam (tie-tag x.0 (lam (tie-tag x.1 (lam (tie-tag x.2 (lam (tie-tag x.3 (var-tag _.0))))))))))
+%     ((lam (tie-tag x.0 (lam (tie-tag x.1 (lam (tie-tag x.2 (lam (tie-tag x.3 (num _.0)))))))))
+%      (lam (tie-tag x.0 (lam (tie-tag x.1 (lam (tie-tag x.2 (lam (tie-tag x.3 (num _.0))))))))))
+%     ((lam (tie-tag x.0 (app (num _.0) (var-tag _.1))))
+%      (lam (tie-tag x.0 (app (num _.0) (var-tag _.1)))))
+%     ((lam (tie-tag x.0 (app (num _.0) (num _.1))))
+%      (lam (tie-tag x.0 (app (num _.0) (num _.1)))))
+%     ((lam (tie-tag x.0 (+ (var-tag _.0) (var-tag _.1))))
+%      (lam (tie-tag x.0 (+ (var-tag _.0) (var-tag _.1)))))
+%     ((lam (tie-tag x.0 (lam (tie-tag x.1 (app (var-tag _.0) (var-tag _.1))))))
+%      (lam (tie-tag x.0 (lam (tie-tag x.1 (app (var-tag _.0) (var-tag _.1)))))))
+%     ((lam (tie-tag x.0 (+ (var-tag _.0) (num _.1))))
+%      (lam (tie-tag x.0 (+ (var-tag _.0) (num _.1)))))
+%     ((+ (num (1)) (num (0 _.0 . _.1)))
+%      (num (1 _.0 . _.1)))))
+
+% (test "generate-2"
+%   ; More interesting answers.
+%   ; Only look at the applications.  
+%   (run 10 (q)
+%     (exist (e v rator rand)
+%       (== `(app ,rator ,rand) e)
+%       (fully-reduceo e v)
+%       (== `(,e ,v) q)))
+%   '(((app (lam (tie-tag x.0 (var-tag x.0))) (num _.0)) (num _.0))
+%     ((app (lam (tie-tag x.0 (num _.0))) (num _.1)) (num _.0))
+%     ((app (lam (tie-tag x.0 (var-tag x.0)))
+%           (lam (tie-tag x.1 (var-tag _.0))))
+%      (lam (tie-tag x.1 (var-tag _.0))))
+%     ((app (lam (tie-tag x.0 (num _.0)))
+%           (lam (tie-tag x.1 (var-tag _.1))))
+%      (num _.0))
+%     (((app (lam (tie-tag x.0 (lam (tie-tag x.1 (var-tag x.0)))))
+%            (num _.0))
+%       (lam (tie-tag c.0 (num _.0)))) : ((c.0 . _.0)))
+%     (((app (lam (tie-tag x.0 (lam (tie-tag x.1 (var-tag _.0)))))
+%            (num _.1))
+%       (lam (tie-tag c.0 (var-tag (susp-tag ((c.0 x.1)) _.0))))) : ((c.0 . _.0) (c.0 . _.1) (x.0 . _.0)))
+%     (((app (lam (tie-tag x.0 (lam (tie-tag x.1 (num _.0)))))
+%            (num _.1))
+%       (lam (tie-tag c.0 (num (susp-tag ((c.0 x.1)) _.0))))) : ((c.0 . _.0) (c.0 . _.1)))
+%     ((app (lam (tie-tag x.0 (var-tag x.0))) (+ (num _.0) (num ())))
+%      (num _.0))
+%     ((app (lam (tie-tag x.0 (var-tag x.0)))
+%           (lam (tie-tag x.1 (num _.0))))
+%      (lam (tie-tag x.1 (num _.0))))
+%     ((app (lam (tie-tag x.0 (num _.0)))
+%           (lam (tie-tag x.1 (num _.1))))
+%      (num _.0))))
+
+% (test "generate-3"
+%   ; More interesting answers.
+%   ; Only look at the applications.
+%   ; Note that we perform the filtering *after* generating/reducing the expressions.
+%   (run 6 (q)
+%     (exist (e v rator rand)  
+%       (fully-reduceo e v)
+%       (== `(app ,rator ,rand) e)
+%       (== `(,e ,v) q)))
+%   `(((app (lam (tie-tag x.0 (var-tag x.0))) (num _.0)) (num _.0))
+%     ((app (lam (tie-tag x.0 (var-tag x.0))) (+ (num _.0) (num ())))
+%      (num _.0))
+%     ((app (lam (tie-tag x.0 (num _.0))) (num _.1)) (num _.0))
+%     (((app (lam (tie-tag x.0 (num _.0))) (+ (num _.1) (num ())))
+%       (num (susp-tag ((x.1 x.0)) _.0))) : ((x.1 . _.0)))
+%     ((app (lam (tie-tag x.0 (var-tag x.0)))
+%           (+ (num ()) (num (_.0 . _.1))))
+%      (num (_.0 . _.1)))
+%     ((app (lam (tie-tag x.0 (var-tag x.0)))
+%           (lam (tie-tag x.1 (var-tag _.0))))
+%      (lam (tie-tag x.1 (var-tag _.0))))))
+
+% Performance under Chez Scheme 7.3 with optimize-level 2 on Casper:
+
+% (time (load "ak-lam-v.scm"))
+%     11314 collections
+%     35729 ms elapsed cpu time, including 16239 ms collecting
+%     35737 ms elapsed real time, including 16300 ms collecting
+%     12100440344 bytes allocated, including 12094863232 bytes reclaimed

@@ -1,0 +1,31 @@
+\chapter{Parser for Nominal Type Inferencer}\label{akinferparser}
+
+This parser is used by the nominal type inferencer is
+section~\ref{aktypeinf}.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define parse (lambda (exp) (parse-aux exp '())))
+
+(define parse-aux
+  (lambda (exp env)
+    (pmatch exp
+      (`,x (guard (symbol? x))
+       (let ((v (cdr (assq x env))))
+         `(vartag ,v)))
+      (`,n (guard (number? n)) `(intc ,n))
+      (`,b (guard (boolean? b)) `(boolc ,b))
+      (`(zero? ,e) (let ((e (parse-aux e env))) `(zero? ,e)))
+      (`(sub1 ,e) (let ((e (parse-aux e env))) `(sub1 ,e)))
+      (`(fix ,e) (let ((e (parse-aux e env))) `(fix ,e)))
+      (`(* ,e1 ,e2) (let ((e1 (parse-aux e1 env)) (e2 (parse-aux e2 env))) `(* ,e1 ,e2)))
+      (`(if ,e1 ,e2 ,e3)
+       (let ((e1 (parse-aux e1 env)) (e2 (parse-aux e2 env)) (e3 (parse-aux e3 env)))
+         `(if ,e1 ,e2 ,e3)))
+      (`(lambda (,x) ,e)
+       (let* ((a (nom x)) (e (tie a (parse-aux e (cons (cons x a) env)))))
+         `(lam ,e)))
+      (`(,e1 ,e2)
+       (let ((e1 (parse-aux e1 env)) (e2 (parse-aux e2 env)))
+         `(app ,e1 ,e2))))))
+\end{schemedisplay}

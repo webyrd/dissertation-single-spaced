@@ -1,0 +1,314 @@
+\chapter{Techniques III: Tabling}\label{tablingchapter}
+
+This chapter introduces \emph{tabling}, an extension of memoization to
+logic programming.  We present a full implementation of tabling for
+miniKanren in Chapter~\ref{tablingimplchapter}.
+
+This chapter is organized as follows.  In section~\ref{tablingmemo} we
+review memoization as used in functional programming.
+Section~\ref{tablingintro} introduces tabling, explains how tabling
+differs from memoization, and describes a few of the many applications
+of tabling.  In section~\ref{tablingform} we present the
+\scheme|tabled| form, used to create tabled relations.  In
+section~\ref{tablingexamples} we examine several examples of tabled
+relations, and in section~\ref{tablinglimitations} we discuss the
+limitations of tabling.
+
+\section{Memoization}\label{tablingmemo}
+
+Consider the naive Scheme implementation of the Fibonacci function.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define fib
+  (lambda (n)
+    (cond
+      ((= 0 n) 0)
+      ((= 1 n) 1)
+      (else (+ (fib (- n 1)) (fib (- n 2)))))))
+\end{schemedisplay}
+
+\noindent 
+The call \mbox{\scheme|(fib 5)|} results in calls to
+\mbox{\scheme|(fib 4)|} and \mbox{\scheme|(fib 3)|}; the resulting
+call to \mbox{\scheme|(fib 4)|} also calls \mbox{\scheme|(fib 3)|}.
+The call \mbox{\scheme|(fib 5)|} therefore results in two calls to
+\mbox{\scheme|(fib 3)|}, the second of which performs duplicate work.
+Similarly, \mbox{\scheme|(fib 5)|} results in three calls to
+\mbox{\scheme|(fib 2)|}, five calls to \mbox{\scheme|(fib 1)|}, and
+three calls to \mbox{\scheme|(fib 0)|}.  Due to these redundant calls,
+the time complexity of \scheme|fib| is exponential in $n$.
+
+To avoid this duplicate work, we could record each distinct call to
+\scheme|fib| in a table, along with the answer returned by that call.
+Whenever a duplicate call to \scheme|fib| is made, \scheme|fib| would
+return the answer stored in the table instead of recomputing the
+result.  This optimization technique, known as \emph{memoization}
+\cite{Michie68}, can result in a lower complexity class for the
+running time of the memoized function.  Indeed, the memoized version
+of \scheme|fib| runs in linear rather than exponential time.
+
+Memoization is a common technique in functional programming, since it
+often improves performance of recursive functions.  In this chapter we
+consider the related technique of \scheme|tabling|, which generalizes
+memoization to logic programming.
+
+\section{Tabling}\label{tablingintro}
+
+Tabling is a generalization of memoization; tabling allows a relation
+to store and reuse its previously computed results.  Tabling a
+relation is more complicated than memoizing a function, since a
+relation returns a potentially infinite stream of substitutions rather
+than a single value.  Also, the arguments to a tabled relation can
+contain unassociated logic variables or partially instantiated terms,
+which complicates determining whether a call is a variant of a
+previously seen call.
+
+Tabling, like memoization, can result in dramatic performance gains
+for some programs.  For example, combining tabling with Prolog's Definite
+Clause Grammars~\cite{dcg86} makes it trivial to write efficient
+recursive descent parsers that handle left-recursion\footnote{One
+  important use of tabling by Prolog systems is to handle
+  left-recursive definitions of goals; due to Prolog's incomplete
+  depth-first search, calls to left-recursive goals often diverge.
+  Since miniKanren uses a complete search strategy, handling
+  left-recursion is not a problem.  However, we will see in
+  section~\ref{tablingexamples} that there are other programs we want
+  to write that terminate under tabling but diverge
+  otherwise.}~\cite{DBLP:conf/padl/BecketS08}---these parsers are
+equivalent to ``packrat'' parsing~\cite{packrat02}.  Tabling is also
+useful for writing programs that must calculate fixed points, such as
+abstract interpreters and model checkers~\cite{memoingforlp,dra09}.
+However, the real reason we are interested in tabling is that many
+relations that would otherwise diverge terminate under tabling, as we
+will see in section~\ref{tablingexamples}.
+
+An excellent introduction to tabling and its uses is Warren's survey~\cite{memoingforlp}.
+
+\section{The {\bf tabled} Form}\label{tablingform}
+
+Tabled relations are constructed using the \scheme|tabled| form:
+
+\wspace
+
+\mbox{\scheme|(tabled (x ...) g g* ...)|}
+
+\wspace
+
+\noindent For example, 
+
+\wspace
+
+\mbox{\scheme|(define fo (tabled (z) (== z 5)))|}
+
+\wspace
+
+\noindent defines a top-level tabled goal constructor named
+\scheme|fo|.  Each tabled goal constructor has its own local table,
+which can be garbage collected once there are no live references to
+the goal constructor.  Keep in mind that the table is associated with
+the goal constructor, not the goal returned by the goal constructor.
+
+Calls to a tabled relation come in two flavors: master calls and slave
+calls.  A \emph{master call} is a call to a tabled relation whose
+arguments are not (yet) stored in the table.  A \emph{slave call} is a
+call whose arguments are found in the table; each slave call is a
+\emph{variant} of some master call.
+
+Two calls to the same tabled relation are variants of each other if
+their arguments are the same, up to consistent renaming of
+unassociated logic variables\footnote{In other words, the two lists of arguments
+  to the relation, when reified with respect to their ``current'' substitutions, 
+  must be \scheme|equal?|.}. For example, consider the calls
+\mbox{\scheme|(mulo y z 5)|} and \mbox{\scheme|(mulo w w x)|} in the
+substitutions \mbox{\scheme|`((y . z))|} and \mbox{\scheme|`((x . 5))|},
+respectively.  Taking the substitutions into account, these calls are equivalent to
+\mbox{\scheme|(mulo z z 5)|} and \mbox{\scheme|(mulo w w 5)|}, which are variants of 
+each other.  However, the calls \mbox{\scheme|(mulo w w x)|} and \mbox{\scheme|(mulo y z z)|}
+are variants only if \scheme|w| is associated with \scheme|x|, and \scheme|y| is associated with \scheme|z|,
+respectively.  For the same reason, 
+\mbox{\scheme|(mulo w 5 6)|} and \mbox{\scheme|(mulo y z 6)|} are variants only if 
+\scheme|z| is associated with 5 in the substitution in place for the second call.
+
+\section{Tabling Examples}\label{tablingexamples}
+
+We are now ready to examine examples of tabled relations.  The
+canonical example relation, \scheme|patho|\footnote{The path examples
+  in this section are taken from~\citet{memoingforlp}.}, finds all
+paths between two nodes in a directed graph.  The goal
+\mbox{\scheme|(patho x y)|} succeeds if there is a directed edge from
+\scheme|x| to \scheme|y|, or if there is an edge from \scheme|x| to
+some node \scheme|z| and there is a path from \scheme|z| to
+\scheme|y|.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define patho
+  (lambda (x y)
+    (conde
+      ((arco x y))
+      ((exist (z)
+         (arco x z)
+         (patho z y))))))
+\end{schemedisplay}
+
+\noindent The goal \mbox{\scheme|(arco x y)|} succeeds if there is a
+directed edge from node \scheme|x| to node \scheme|y|.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define arco
+  (lambda (x y)
+    (conde
+      ((== 'a x) (== 'b y))
+      ((== 'c x) (== 'b y))
+      ((== 'b x) (== 'd y)))))
+\end{schemedisplay}
+
+\noindent This definition of \scheme|arco| represents edges from
+\scheme|'a| to \scheme|'b|, \scheme|'c| to \scheme|'b|, and
+\scheme|'b| to \scheme|'d|.
+
+\noindent The expression \mbox{\scheme|(run* (q) (patho 'a q))|}
+returns \mbox{\scheme|'(b d)|}, indicating that only the nodes
+\scheme|'b| and \scheme|'d| are reachable from \scheme|'a|.
+
+Now let us redefine \scheme|arco| to represent a different set of
+directed edges, this time with a circularity between nodes \scheme|'a|
+and \scheme|'b|.
+
+\newpage
+
+\schemedisplayspace \begin{schemedisplay}
+(define arco
+  (lambda (x y)
+    (conde
+      ((== 'a x) (== 'b y))
+      ((== 'b x) (== 'a y))
+      ((== 'b x) (== 'd y)))))
+\end{schemedisplay}
+
+\noindent Using the new definition of \scheme|arco|, the expression
+\mbox{\scheme|(run* (q) (patho 'a q))|} now diverges.  We can
+understand the cause of this divergence if we replace \scheme|run*|
+with \scheme|run10|.
+
+\wspace
+
+\noindent\scheme|(run10 (q) (patho 'a q))|  $\Rightarrow$ \scheme|'(b a d b a d b a d b)|
+
+\wspace
+
+\noindent Because of the circular path between \scheme|'a| and
+\scheme|'b|, \mbox{\scheme|(patho 'a q)|} keeps finding longer and
+longer paths between \scheme|'a| and the nodes \scheme|'b|, \scheme|'a|,
+and \scheme|'d|.  To avoid this problem, we can table
+\scheme|patho|.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define patho
+  (tabled (x y)
+    (conde
+      ((arco x y))
+      ((exist (z)
+         (arco x z)
+         (patho z y))))))
+\end{schemedisplay}
+
+\noindent \mbox{\scheme|(run* (q) (patho 'a q))|} then converges,
+returning \mbox{\scheme|'(b a d)|}.
+
+Now let us consider a mutually recursive program.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(letrec ((fo (lambda (x)
+               (conde
+                 ((== 0 x))
+                 ((go x)))))
+         (go (lambda (x)
+               (conde
+                 ((== 1 x))
+                 ((fo x))))))
+  (run* (q) (fo q)))
+\end{schemedisplay}
+
+\noindent This expression diverges.  If we replace
+\scheme|run*| with \scheme|run10| the program converges with the value
+\mbox{\scheme|'(0 1 0 1 0 1 0 1 0 1)|}.  If we table either
+\scheme|fo|, \scheme|go|, or both, \mbox{\scheme|(run* (q) (fo q))|}
+converges with the value \mbox{\scheme|'(0 1)|}.
+
+
+\section{Limitations of Tabling}\label{tablinglimitations}
+
+Tabling is a remarkably useful addition to miniKanren, and can be
+used to improve efficiency of relations and
+(sometimes) avoid divergence.  Unfortunately, tabling is not a
+panacea.  In fact, tabling can be trivially defeated by changing one
+or more arguments in each call to a tabled relation.  For example,
+consider the ternary multiplication relation \scheme|mulo| from
+Chapter~\ref{arithchapter}.  The arguments in the call
+
+\wspace
+
+\noindent
+\mbox{\scheme|(mulo `(1 1 . ,x) x `(0 0 0 1 . ,x))|}\footnote{This example is due to Oleg
+  Kiselyov (personal communication).}
+
+\wspace
+
+\noindent
+all share the variable \scheme|x|.
+The resulting goal succeeds only if there exists a non-negative
+integer $x$ that satisfies $(3 + 4x) \cdot x = 8 + 16x$.  \scheme|mulo| 
+enumerates all non-negative integer values for \scheme|x| until it
+finds one that satisfies this equation.  However, if no such
+\scheme|x| exists the call to \scheme|mulo| will diverge.  Tabling
+will not help, since the value of \scheme|x| keeps changing.
+
+Another disadvantage of tabling is that it can greatly increase the
+memory consumption of a program.  This is a problem with memoization
+in general.  For example, consider the tail-recursive
+accumulator-passing-style Scheme definition of factorial\footnote{The
+  call \mbox{\scheme|(!-aps n 1)|} calculates the factorial of
+  \scheme|n|.}.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define !-aps
+  (lambda (n a)
+    (cond
+      ((zero? n) a)
+      (else (!-aps (sub1 n) (* n a))))))
+\end{schemedisplay}
+
+\noindent Other than the space used to represent numbers, this
+function uses a bounded amount of memory\footnote{Scheme
+  implementations are required to handle tail calls properly---thus
+  \scheme|!-aps| uses a constant amount of stack space}.  However, the
+memoized version of \scheme|!-aps| uses an unbounded amount of memory
+if \scheme|n| is negative, and otherwise uses an amount of memory
+linear in \scheme|n|.
+
+Chapter~\ref{tablingimplchapter} presents a complete implementation of
+tabling for miniKanren; this implementation has several limitations.
+The first limitation is that tabled relations must be closed; a tabled
+goal constructor cannot contain free logic variables, since
+associations for those variables would be thrown away.  This is a
+consequence of not storing entire substitutions in a relation's table,
+as described in section~\ref{tablingrep}.
+
+Another limitation is that arguments passed to tabled relations must
+be ``printable'' (or ``reifiable'') values.  For example, tabled
+relations should never be passed functions, including goals, since all
+functions reify to the same value\footnote{Pure relations should never
+take functions as arguments anyway, since miniKanren does not support
+higher-order unification, and cannot meaningfully construct functions
+when running backwards.}.
+
+The most significant limitation of our tabling implementation is that
+it does not currently support disequality constraints, nominal
+unification, or freshness constraints.  How to best combine tabling
+and constraints is an open research problem~\cite{TCHR08}.

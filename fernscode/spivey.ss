@@ -1,0 +1,5 @@
+(fcar (bind-bottom (ints-bottom 2)
+        (timed-lambda (a)
+          (bind-bottom (ints-bottom 2)
+            (timed-lambda (b)
+              (if (= (* a b) 9) (unit-bottom (list a b)) (mzero-bottom)))))))

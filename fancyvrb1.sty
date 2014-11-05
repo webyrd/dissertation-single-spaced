@@ -1,0 +1,38 @@
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{fancyvrb1}[2007/03/17 Improved fancyvrb by ccshan]
+\RequirePackage{fancyvrb}
+
+\DeclareOption{compact}{%
+  \let\saveFV@ListProcessLine@i   \FV@ListProcessLine@i
+  \let\saveFV@ListProcessLine@ii  \FV@ListProcessLine@ii
+  \let\saveFV@ListProcessLine@iii \FV@ListProcessLine@iii
+  \let\saveFV@ListProcessLine@iv  \FV@ListProcessLine@iv
+  \let\saveFV@BProcessLine        \FV@BProcessLine
+  \def\FV@ListProcessLine@i   {\let\saveFV@Compact\saveFV@ListProcessLine@i
+                               \afterassignment\FV@Compact\toks@}%
+  \def\FV@ListProcessLine@ii  {\let\saveFV@Compact\saveFV@ListProcessLine@ii
+                               \afterassignment\FV@ListCompact\toks@}%
+  \def\FV@ListProcessLine@iii {\let\saveFV@Compact\saveFV@ListProcessLine@iii
+                               \afterassignment\FV@ListCompact\toks@}%
+  \def\FV@ListProcessLine@iv  {\let\saveFV@Compact\saveFV@ListProcessLine@iv
+                               \afterassignment\FV@ListCompact\toks@}%
+  \def\FV@BProcessLine        {\let\saveFV@Compact\saveFV@BProcessLine
+                               \afterassignment\FV@Compact\toks@}%
+}
+\ProcessOptions
+
+\def\FV@compactskip{\penalty-200 \medskip}
+\def\FV@Compact{\edef\next{\the\toks@}%
+    \ifx\next\empty
+        \FV@compactskip
+    \else
+        \expandafter\saveFV@Compact\expandafter{\the\toks@}%
+    \fi}%
+\def\FV@ListCompact{\edef\next{\the\toks@}%
+    \ifx\next\empty
+        \FV@ListProcessLastLine
+        \FV@compactskip
+        \let\FV@ProcessLine\FV@ListProcessLine@i
+    \else
+        \expandafter\saveFV@Compact\expandafter{\the\toks@}%
+    \fi}%

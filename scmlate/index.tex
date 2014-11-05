@@ -1,0 +1,803 @@
+% last change: 2012-04-21
+
+\input tex2page
+\input plainsection
+
+\let\TZPtexlayout 0
+\let\n\noindent
+\let\f\numberedfootnote
+
+\ifx\shipout\toHTML
+\let\oldsection\section
+\def\section{\eject\oldsection}
+\fi
+\let\re\subsection
+
+
+\advance\hoffset .75 true in
+\advance\hsize -1.5 true in
+
+\title{scmxlate}
+
+%\ignorenextinputtimestamp
+
+\centerline{\urlh{scmxlate.tar.bz2}{\ifx\shipout\totheWeb
+Download \fi Version 20120421}} % last modified
+
+\centerline{\urlh{../index.html}{Dorai Sitaram}}
+
+\medskip
+
+Scmxlate is a configuration tool for software
+packages written in Scheme.
+
+Scmxlate provides the package author with a strategy
+for programmatically specifying the changes required to
+translate the package for a variety of Scheme dialects
+and Common Lisp, and a variety of operating systems.
+The end-user simply loads {\em one} file into
+their Scheme or Common Lisp, which triggers the entire
+configuration process with little or no further
+intervention.
+
+Thus, there are two types of user for Scmxlate:
+
+\item{\bull} The end-user of an Scmxlate-configured package, who
+relies on the
+Scmxlate program to perform the configuration
+for their system; and
+\item{\bull} the package author, who uses the Scmxlate
+methodology to specify an executable form of the
+configuration details for the package.
+
+The package author is still required to know a lot more
+about the configuration process than the end-user, even
+with Scmxlate helping the former.
+%(The Common Lisp half
+%of Scmxlate uses \urlh{scm2cl.html}{Scm2cl},
+%which is included in the Scmxlate distribution.)
+The advantage to using Scmxlate is that the several
+end-users can each configure the product to their
+different systems by following the same simple
+step.
+
+Section~\ref{useconfig} describes the use of Scmxlate
+to execute an already written configuration, and is all
+the information you will need if you are an
+end-user of packages that have Scmxlate configurations.
+
+Sections~\ref{writeconfig} and \ref{glossary} are for
+package authors, and describe the method and the
+language used to write an Scmxlate configuration.
+
+\bigbreak
+
+\noindent{\bf Contents}
+
+\tableofcontents
+
+\ifx\shipout\totheWeb\else
+\vfill\eject
+\fi
+
+\section{Using an Scmxlate configuration}
+\label{useconfig}
+
+Scenario: You are an end-user who has just downloaded a
+Scheme package, say,
+\urlh{../tex2page/tex2page-doc.html}{TeX2page}.
+The package author claims to have included the Scmxlate
+configuration details in the package.  What do
+you do?
+
+First, you need to have Scmxlate installed on {\em
+your} system.  Get the \urlh{scmxlate.tar.gz}{Scmxlate tarball} and unpack
+it, creating a directory called \p{scmxlate}.  Place
+this directory in its entirety in a place that is
+convenient to you.  Among the files in this directory
+is the file \p{scmxlate.scm}.  Note down
+its {\em full} pathname so you can refer to it from
+anywhere on your filesystem.
+Just to make it concrete, let's assume you put the
+\p{scmxlate} directory in \p{/usr/local/lib}.  Then the
+full pathname to remember is
+
+\p{
+/usr/local/lib/scmxlate/scmxlate.scm
+}
+
+Now to configure the TeX2page package.  Unpack it
+and \p{cd} to its directory.
+
+For each Scheme file {\em filename}  that is to be
+translated, there may (but not necessarily) be a
+user-configuration file \p{scmxlate-}{\em filename} in
+the top directory.  If the instructions that came with
+the package suggest you edit them, do so.  In our
+example package, there is only one user-configuration
+file, it is called \p{scmxlate-tex2page}, and it
+doesn't seem to require any edits from the casual user.
+
+Start your Scheme or Common Lisp in the top directory
+(being in that directory is important!).  In your
+Scheme (or Common Lisp), type
+
+\q{
+(load "/usr/local/lib/scmxlate/scmxlate.scm")
+}
+
+\n where the \q{load} argument is of course the correct
+pathname of the file \p{scmxlate.scm} for your
+setup.
+
+Scmxlate may ask you a few questions.  A
+choice of answers will be provided, so you don't need
+to be too creative.  When Scmxlate finishes, you
+will be left with a version of the package tailormade
+for you.
+
+\section{Writing an Scmxlate configuration}
+\label{writeconfig}
+
+%{\color{red}\relax Nothing in this section is
+%stable.  The implementation and user interface is
+%extremely likely to change in order to make the
+%documentation easier to write.}
+%
+%In the following, we will assume that Scmxlate was
+%unpacked in \p{/usr/local/lib}, so the full pathname of the
+%\p{scmxlate.scm} file is
+%\p{/usr/local/lib/scmxlate/scmxlate.scm}.
+
+\subsection{A minimal configuration}
+
+Let us say you have a number of Scheme files in
+a directory that you intend to package as a
+distribution.  For specificity let's say the name of the
+directory is \p{pkgdir} and you have three Scheme files in it,
+viz, \p{apple}, \p{orange.scm}, and \p{banana.ss}.
+There is no restriction on the names of these Scheme
+files: They may have any or no extension.  An end-user
+of your distribution will unpack it to produce a
+\p{pkgdir} of their own with the three Scheme files in
+it.
+
+Let us now say that you wrote the Scheme files in the
+MzScheme dialect of Scheme, but that the end-user
+uses the Guile dialect of Scheme.  In order for them to
+be able to create Guile versions of your files, you
+need to provide in \p{pkgdir} some configuration
+information.  This can be done as follows:
+
+Create a subdirectory called \p{dialects} in
+\p{pkgdir}.  In the \p{dialects} subdirectory,
+create a file called \p{files-to-be-ported.scm}
+containing the names of the Scheme files to be
+translated,  viz:
+
+\q{
+"apple"
+"orange.scm"
+"banana.ss"
+}
+
+\n and a file called \p{dialects-supported.scm} containing
+the line
+
+\q{
+guile
+}
+
+\n The symbol \q{guile} of course stands for the Scheme
+dialect Guile.
+
+The Guile-using user can now start Guile in \p{pkgdir},
+and load \p{scmxlate.scm} (using the appropriate
+pathname for \p{scmxlate.scm} on their system, as
+described in Section~\ref{useconfig}).  Scmxlate will learn
+from \path{dialects/files-to-be-ported.scm} that the files
+\p{apple}, \p{orange.scm}, and \p{banana.ss} need to be
+translated.  It will ask the user what the dialect is,
+offering as choices the dialects listed in
+\path{dialects/dialects-supported.scm}, plus a catch-all
+dialect called Other:\f{The astute reader may wonder
+why Scmxlate needs to explicitly ask the user what the
+target dialect is, when it is already running on it!
+Unfortunately, since the Scxmlate code is necessarily
+written in a style that must load in all Schemes, it
+cannot portably determine the identity of the
+particular Scheme dialect it is currently running on.}
+
+\p{
+What is your Scheme dialect?
+     (guile other)
+}
+
+The user types \p{guile} in response.  Scmxlate now
+understands that it is to create Guile translations of
+the three files, and proceeds to do so.  By default,
+the translation-result files are created in the
+\p{pkgdir} directory and have the same names as the
+original but with the prefix \p{my-} attached.  Thus,
+in this case, their names are \p{my-apple},
+\p{my-orange.scm}, and \p{my-banana.ss}.
+
+In the following, we will for convenience use
+the following terms:
+
+\item{\bull} {\em input file}: a file to be translated;
+\item{\bull} {\em output file}: a file that is the result of
+a translation;
+\item{\bull} {\em target dialect}: the dialect translated to.
+
+\n In our example above, \p{apple} is an input
+file, \p{my-apple} is its corresponding output file,
+and Guile is the target dialect.
+
+\subsection{Dialect-configuration files}
+
+The output  file \p{my-apple} above uses Scmxlate's
+default rules for an MzScheme-to-Guile translation.
+These rules are general and cannot be expected to cover
+any peculiar translational information that may be
+relevant to the code in \p{apple}.  You can supply such
+additional information to Scmxlate via a {\em
+dialect-configuration file} called \p{guile-apple} in
+the \p{dialects} subdirectory.   Ie, the name of
+the dialect-configuration file for a given input file
+and a given dialect is formed from  the Scmxlate symbol
+for the dialect, followed by a hyphen, followed by the
+name of the input file.
+
+Scmxlate typically takes code from a
+dialect-configuration file and sticks it  ahead of the
+translated code in the output file.  This code can be
+any Scheme code in the target dialect, and in
+particular, it can include definitions.  The order of
+the code in the dialect-configuration file is preserved
+in the output file.
+
+For instance, if the MzScheme code in \p{apple} made
+use of a nonstandard (MzScheme-only) primitive such as
+\q{file-or-directory-modify-seconds}, we could supply
+the following Guile definition in the
+dialect-configuration file,
+\path{dialects/guile-apple}:
+
+\q{
+(define file-or-directory-modify-seconds
+  (lambda (f) (vector-ref (stat f) 9)))
+}
+
+If the dialect-configuration file supplies a definition for
+a name that is also defined in the input file,
+then the output file will contain the definition from
+the dialect-configuration file, not the input file.
+For example, if \p{apple} contained
+the definition
+
+\q{
+(define file-newer?
+  (lambda (f1 f2)
+    ;checks if f1 is newer than f2
+    (> (file-or-directory-modify-seconds f1)
+       (file-or-directory-modify-seconds f2))))
+}
+
+\n we could put a competing Guile-specific definition
+in \p{dialects/guile-apple}:
+
+\q{
+(define file-newer?
+  (lambda (f1 f2)
+    (> (vector-ref (stat f1) 9)
+       (vector-ref (stat f2) 9))))
+}
+
+\n When Scmxlate translates \p{apple}, it will directly
+incorporate this Guile definition into the output file
+\p{my-apple} and won't even attempt to translate
+the MzScheme definition of the same name in the
+input file.
+
+\subsection{Target dialects}
+
+In the above, we used the symbol \q{guile} in the
+\p{dialects/dialects-supported.scm} file to signal to
+Scmxlate that Guile is one of the dialects into which
+the package can be translated.  The list of dialect symbols
+recognized by Scmxlate is: \q{bigloo}, \q{chez},
+\q{cl},
+\q{gambit}, \q{gauche}, \q{guile}, \q{kawa}, \q{mitscheme},
+\q{mzscheme}, \q{other}, \q{petite}, \q{pscheme}, \q{scheme48},
+\q{scm}, \q{sxm}, \q{scsh}, \q{stk}, \q{stklos},
+\q{umbscheme}.
+
+The symbols \q{mzscheme} and \q{plt}
+may both be used for PLT Scheme: two symbols are
+provided in case two distinct types of translations are
+called for --- with \q{mzscheme} perhaps being used to create a
+self-sufficient MzScheme script file, and \q{plt} to construct a
+PLT module library.
+
+The symbol \q{cl} stands  for
+Common Lisp.\f{Note that
+Scmxlate can readily determine if it's running
+on Common Lisp (as opposed to Scheme), so it will not query the user
+for further ``dialect'' information.}
+
+The symbol \q{other} can be used by the package author
+to provide a default configuration for an unforeseen
+dialect.  Since the dialect is unknown, there isn't
+much information to exploit, but it may be
+possible to provide some bare-minimum functionality
+(or at least display some advice).
+
+The package author can make use of other symbols to
+denote other Scheme dialects.  However, as Scmxlate
+cannot do any special translation for such dialects, it
+is the responsibility of the package author to provide
+additional configuration information for them by
+writing dialect-configuration files.
+
+\subsection{User-configuration files}
+
+Some packages need some configuration information that
+the package author cannot predict and that therefore
+can come only come from the user.  The information
+typically contains user preferences for global
+variables in the program.  It should not be
+dialect-specific.
+
+Such user information can be placed in {\em
+user-configuration files} in the package directory.
+Each input file can have its own
+user-configuration file, and the latter's name
+consists of the prefix \p{scmxlate-} followed by the
+name of the input file.  Thus the user configuration
+file for \p{orange.scm} is \p{scmxlate-orange.scm}.
+
+While the package author may not be able to predict the
+values of the globals preferred by their various
+users, they can include in the package sample
+user-configuration files that mention the globals
+requiring the user's intervention, with comments
+instructing how the user is to customize them.
+
+Note that user-configuration code comes ahead of the
+dialect-configuration code in the output file.
+Definitions in the user-configuration code override
+definitions in the dialect-configuration code, just
+as the latter themselves override definitions in the
+input file.
+
+\section{The Scmxlate directives}
+\label{glossary}
+
+In addition to Scheme code intended to either augment
+or override code in the input file, the
+dialect- and user-configuration files can
+use a small set of Scmxlate directives to finely control
+the text that goes into the output file, and even
+specify actions that go beyond the mere creation
+of the output file.  These directives are now described.
+
+\re{{\tt scmxlate-insert}}
+
+As we saw, Scheme code in the dialect- and
+user-configuration files is transferred verbatim
+to the output file.  Sometimes, we need to put into the
+output file arbitrary text that is not Scheme code.
+For instance, we may want the output file to start with
+a ``shell magic'' line, so that it can be used as a
+shell script.  Such text can be written using the
+\p{scmxlate-insert} directive, which evaluates its
+subforms in Scheme and displays them on the output
+file.
+
+Eg, if you put the following at
+the very head of the \p{guile-apple} file:
+
+\q{
+(scmxlate-insert
+  "#!/bin/sh
+exec guile -s $0 \"$@\"
+!#
+")
+}
+
+\n the output Guile file \p{my-apple} will start with the
+line
+
+\p{
+#!/bin/sh
+exec guile -s $0 "$@"
+!#
+}
+
+Note that the order of the code and \q{scmxlate-insert}
+text in the configuration file is preserved in
+the output file.
+
+\re{{\tt scmxlate-postamble}}
+
+Typically, the Scheme code and \p{scmxlate-insert}s
+specified in the dialect-configuration file occur in
+the output file before the translated counterpart of
+input file's contents, and thus may be considered as
+{\em preamble} text.   Sometimes we need to add {\em
+postamble} text, ie, things that go {\em after} the
+code from the input file.  In order to do this,
+place the directive
+
+\q{
+(scmxlate-postamble)
+}
+
+\n after any preamble text in the dialect-configuration
+file.  Everything following that, whether Scheme
+code or \q{scmxlate-insert}s, will show up in the
+output file after the translated contents of the input
+file.
+
+\re{{\tt scmxlate-postprocess}}
+
+One can also specify actions that need to performed
+after the output file has been written.  Eg, let's say
+we want the Guile output file for \p{apple} to be
+named \p{pear} rather than \p{my-apple}.  We can
+enclose Scheme code for achieving this inside the
+Scmxlate directive \q{scmxlate-postprocess}:
+
+\q{
+(scmxlate-postprocess
+  (rename-file "my-apple" "pear"))
+}
+
+\re{{\tt scmxlate-ignore-define}}
+
+Sometimes the input file has a definition that the
+target dialect does not need, either because the target
+dialect already has it as a primitive, or because we
+wish to completely re-write input code that uses that
+definition.  Eg, if the target dialect is MzScheme,
+which already contains \q{reverse!}, any definition of
+\q{reverse!} in the input file can be ignored.
+
+\q{
+(scmxlate-ignore-define reverse!)
+}
+
+\q{scmxlate-ignore-define} can have any number of
+arguments.  The definitions of all of them will be
+ignored.
+
+\re{{\tt scmxlate-rename}}
+
+Sometimes we want to rename certain identifiers from
+the input file.  One possible motivation is that
+these identifiers name nonstandard primitives that are
+provided under a different name in the target dialect.
+For instance, the Bigloo versions of the MzScheme
+primitives \q{current-directory} and
+\q{file-or-directory-modify-seconds} are \q{chdir} and
+\q{file-modification-time} respectively.  So if your
+MzScheme input file uses \q{current-directory} and
+\q{file-or-directory-modify-seconds}, your Bigloo
+dialect-configuration file should contain
+
+\q{
+(scmxlate-rename
+ (current-directory chdir)
+ (file-or-directory-modify-seconds file-modification-time))
+}
+
+Note the syntax: \q{scmxlate-rename} has any number of
+twosomes as arguments.  The left item is the name in
+the input file, and the right item is its proposed
+replacement.
+
+\re{{\tt scmxlate-rename-define}}
+
+Sometimes the input file includes a definition
+for an operator that the target dialect already has as
+a primitive, but with a different name.   Eg, consider
+an input file that contains a definition for
+\q{nreverse}.  MzScheme has the same operator but with
+name \q{reverse!}.  You could add the following to
+the MzScheme dialect-configuration file:
+
+\q{
+(scmxlate-rename-define
+  (nreverse reverse!))
+}
+
+Note that this is shorthand for
+
+\q{
+(scmxlate-ignore-define nreverse)
+(scmxlate-rename
+  (nreverse reverse!))
+}
+\re{{\tt scmxlate-prefix}}
+
+Another motivation for renaming is to avoid polluting
+namespace.  We may wish to have short names in the
+input file, but when we configure it, we want longer,
+``qualified'' names.  It is possible to use
+\q{scmxlate-rename} for this, but the
+\q{scmxlate-prefix} is convenient when the newer names
+are all uniformly formed by adding a prefix.
+
+\q{
+(scmxlate-prefix
+  "regexp::"
+  match
+  substitute
+  substitute-all)
+}
+
+\n renames the identifiers \q{match}, \q{substitute},
+and \q{substitute-all} to
+\q{regexp::match}, \q{regexp::substitute}, and
+\q{regexp::substitute-all} respectively.
+
+The first argument of \q{scmxlate-prefix} is the
+string form of the prefix; the remaining arguments are
+the identifiers that should be renamed.
+
+\re{{\tt scmxlate-cond}}
+
+Sometimes we want parts of the dialect-configuration
+file to processed only when a condition holds.  For
+instance, we can use the following \q{cond}-like
+conditional in
+a dialect-configuration file for MzScheme to
+write out a  shell-magic
+line appropriate to the operating system:
+
+\q{
+(scmxlate-cond
+  ((eqv? (system-type) 'unix)
+   (scmxlate-insert *unix-shell-magic-line*))
+  ((eqv? (system-type) 'windows)
+   (scmxlate-insert *windows-shell-magic-line*)))
+}
+
+\n where \q{*unix-shell-magic-line*} and
+\q{*windows-shell-magic-line*} are replaced by
+appropriate strings.
+
+Note that while \q{scmxlate-cond} allows the \q{else}
+keyword for its final clause, it does not support the
+Scheme \q{cond}'s \q{=>} keyword.
+
+\re{{\tt scmxlate-eval}}
+
+The test argument of \q{scmxlate-cond} and all the
+arguments of \q{scmxlate-insert} are evaluated in the
+Scheme global environment when Scmxlate is running.
+You can enhance this environment with
+\q{scmxlate-eval}.  Thus, if we had
+
+\q{
+(scmxlate-eval
+  (define *unix-shell-magic-line* <...>)
+  (define *windows-shell-magic-line* <...>))
+}
+
+\n where the \q{<...>} stand for code that constructs
+the appropriate string, then we could use these
+variables as the arguments to \q{scmxlate-insert} in
+the example under \q{scmxlate-cond}.
+
+\q{scmxlate-eval} can have any number of subforms.
+It evaluates each of them in the given order.
+
+\re{{\tt scmxlate-compile}}
+
+\q{scmxlate-compile} can be used to tell if the output
+file is to be compiled.  Typical usage is
+
+\q{
+(scmxlate-compile #t)      ;or
+(scmxlate-compile #f)
+}
+
+\n The first forces compilation but only if the dialect
+supports it, and the second disables compilation even
+if the dialect supports it.  The argument of
+\q{scmxlate-compile} can be any expression, which is
+evaluated only for its boolean significance.
+
+Without a \q{scmxlate-compile} setting, Scmxlate will
+ask the user explicitly for advice, but only if
+the dialect supports compilation.
+
+\re{{\tt scmxlate-include}}
+
+It is often convenient to keep in a separate file some
+of the portions of the text that should go into a
+dialect-configuration file.  Some definitions may
+naturally be already written down somewhere else, or
+we may want the text to be shared across several
+dialect-configuration files (for different dialects).
+The call
+
+\q{
+(scmxlate-include "filename")
+}
+
+\n inserts the contents of \q{"filename"}
+into that location in the dialect-configuration file.
+
+\re{{\tt scmxlate-uncall}}
+
+It is sometimes necessary to skip a top-level
+call when translating an input file.  For instance,
+the input file may be used as a script file whose
+scriptural action consists in calling a procedure
+called \q{main}.  The target dialect may not allow
+the output file to be a script, so the user may prefer
+to load the output file into Scheme as a library
+and make other arrangements to invoke its
+functionality.  To disable the call to \q{main}
+in the output file, add
+
+\q{
+(scmxlate-uncall main)
+}
+
+\n to the configuration file.
+
+\q{scmxlate-uncall} can take any number of symbol
+arguments.  All the corresponding top-level calls
+will be disabled in the output.
+
+\bye
+
+Some rejected crap follows.
+
+Only two of these symbols need special explanation: A
+user can pick the \p{other} dialect if his Scheme isn't
+listed in the choices that Scmxlate offers.  The
+dialect \p{cl} isn't a Scheme dialect but Common Lisp.
+Scheme dialects do identified  by human
+intervention, as there is (yet) no portable Scheme code
+to id the dialect.
+
+More than one file can be configured using
+Scmxlate.  Just add the filenames to
+\p{dialects/files-to-be-ported.scm}.  Customizing info
+tailored to each file can be added to the \p{dialects}
+directory as we have already described for the
+file \p{progfile}.  Ie, an Scsh customization file
+for \p{anotherfile.ss} would be
+\p{dialects/scsh-anotherfile.ss}.
+
+\iffalse
+This kind of definition replacement is particularly
+useful when the target language is Common Lisp.
+For instance, let's say \p{progfile} contains
+the definition
+
+\q{
+(define lassoc
+  (lambda (k al equ?)
+    (let loop ((al al))
+      (if (null? al) #f
+          (let ((c (car al)))
+            (if (equ? (car c) k) c
+                (loop (cdr al))))))))
+}
+
+Scmxlate will provide a complicated if working
+Common Lisp translation of the above code, but it
+will not be as simple as
+
+\q{
+(defun lassoc (k al equ?)
+  (assoc k al :test equ?))
+}
+
+You can put this latter definition in
+\p{dialects/cl-progfile} -- where the symbol \q{cl}
+stands for Common Lisp -- and it will be used in
+preference to the default translation.
+\fi
+
+You may wish for some extra CL code to precede or
+follow the translated \p{progfile} code.  For instance,
+you may wish to add some additional definitions before
+the translation to cover some MzScheme-specific
+procedures you may have used in \p{progfile}.  Eg,
+
+\q{
+(defun getenv (ev)
+  (system::getenv ev))
+}
+
+\n This can be placed in the file
+\p{dialects/cl-preamble-progfile}.
+
+CL code you want following the \p{progfile} code can be
+placed in \p{dialects/cl-postamble-progfile}.
+
+\subsection{Specifying Scheme dialects}
+
+The filename prefix \p{cl-} used in the previous
+example is used to identify configuration info
+for Common Lisp.  If the target language is another
+Scheme dialect, rather than Common Lisp, you can follow
+a similar procedure, except that we need some way for
+the target Scheme to identify itself to Scmxlate.
+Scmxlate can tell if it is running in CL, but
+needs help in determining which particular Scheme
+dialect it is running.
+
+For example, let's say the target Scheme dialect
+is Guile.  We create in \p{dialects} a file called
+\p{dialects-supported.scm} containing the line
+
+\p{
+guile
+}
+
+Now if the user starts Guile in the \p{pkgdir}
+directory and loads \p{scmxlate.scm}, the following
+question will be asked:
+
+\p{
+What is your Scheme dialect?
+     (guile other)
+}
+
+Typing \p{guile} in response will cause Scmxlate to
+create a \p{my-progfile} that is the Guile translation
+of \p{progfile}.  You can add additional Guile
+configuration info in the form of the files
+\p{guile-preamble-progfile}, \p{guile-procs-progfile},
+and \p{guile-postamble-progfile}, exactly as for CL
+above.
+
+The user can use the symbol \p{other} if his Scheme
+dialect is not listed in \p{dialects-supported.scm} but
+he wants to configure the package anyway.  The results
+may be variable.  The configurer can also put in
+additional config info in the \p{dialects}
+directory using the \p{other-} prefix.
+
+You can certainly add a symbol of your own in
+\p{dialects-supported.scm}.  Scmxlate will not know
+of it by default, but you can add additional
+configuration files using the appropriate prefix in
+\p{dialects}.
+
+\subsection{Configuring more than one file}
+
+You can of course configure more than one \p{progfile}.
+Simply add their names to the
+\p{dialects/files-to-be-ported.scm} directory.  By
+default, the translated files will have the same names
+as the originals, but with the prefix \p{my-} in front
+of them.
+
+\subsection{To be described}
+
+Scmxlate-specific commands used in the
+configuration files:
+
+user-override-file
+
+operating-system dependencies
+
+Let us say you wrote a Scheme file named
+\p{progfile}\f{The Scheme file's name may have no or
+any extension.  Thus, \p{newton-raphson},
+\p{newton-raphson~}, \p{newton-raphson.bak},
+\p{newton-raphson.scm}, \p{newton-raphson.ss},
+\p{newton-raphson.java} are all acceptable filenames
+--- but the file's contents must be Scheme code.} in a
+directory \p{pkgdir}, and you package it off into a
+distribution which an end-user will unpack to
+produce a directory \p{pkgdir} of his own.

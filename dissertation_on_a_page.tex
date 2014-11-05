@@ -1,0 +1,279 @@
+\title{Relational Programming: Techniques, Applications, and Obstacles}
+
+[Dan thinks 'Limitations' may be better than obstacles]
+
+\chapter{Dedication} For my parents.
+
+\chapter{Acknowledgements}
+
+start by thanking committee members individually; Olin uses a bulleted
+list, one bullet per member
+
+thank Olin for writing an exemplary dissertation whose structure I
+shamelessly ripped off
+
+end by thanking family
+
+\chapter{Abstract}
+[check abstracts of my papers]
+
+describe disparity between promise and reality of logic programming
+
+brief explanation of and motivation for relational programming
+
+describe the work this dissertation presents
+
+\chapter{Preface}
+[re-read TRS preface]
+
+Describe history of our research program on relational programming,
+including the evolution of miniKanren, the development and adoption of
+new idioms and techniques, interesting applications of relational
+programming, and the evolution of our philosophy and outlook.
+
+\chapter{Introduction}
+
+  \section{My Thesis}
+
+[thesis sentence is first sentence of diss., and forms a complete paragraph:]
+
+  New techniques make it increasingly feasible and useful to write
+  programs as relations.
+
+  several paragraphs describing problem
+
+  one paragraph for each part of my thesis, explaining how I support
+  that assertion in my dissertation
+  
+  \section{Structure of this Dissertation}
+
+This dissertation has the following structure:
+
+[bullet list roadmap with chunking of chapters, illustrating how the
+chapters fit together]
+
+  \section{Logic Programming and Relations}
+
+    \subsection{Logic Programming}
+
+    [Dan says I should do something like this: for convenience, in the
+    sequel logic programming is just referred to as ``programming'']
+
+    \subsection{Relations}
+
+    \subsection{The Problem}
+
+    perhaps give a simple example or two showing difficulty of writing
+    relations: perhaps rembero, demonstrating the need for constraints
+    [or something based on lambda calculus, demonstrating need for
+    nominal logic], and an example showing divergence, demonstrating
+    the need for bounds or constraints
+
+\chapter{Introduction to Core miniKanren}
+
+\chapter{Basic Techniques}
+
+\chapter{Simple Examples}
+
+\chapter{Implementation I:  Core miniKanren}
+
+\chapter{Advanced Techniques I:  Deriving Bounds for Divergence Avoidance}
+
+\chapter{Applications I:  Pure Binary Arithmetic}
+
+[can we write a relational quicksort program, like in Apt's paper?
+See page 3 of Apt's paper 'Declarative Programming in Prolog']
+
+[also, can we write the trans relation w/out negation?  see page 15 of
+Apt's paper]
+
+\chapter{Advanced Techniques II:  Nominal Logic}
+
+\chapter{Applications II:  Relational Type Inferencer}
+
+\chapter{Applications III:  alphaleanTAP}
+
+\chapter{Implementation II:  alphaKanren}
+
+\chapter{Advanced Techniques III:  Advanced Divergence Avoidance}
+
+\chapter{Applications IV:  PLT-Redex-Style Reducer} 
+(alternatively, could do interpeter, although this might be too
+similar to type inferencer)
+
+\chapter{Implementation III:  Tabling}
+
+[can we write a PLT-Redex style reducer or a small-step interpreter
+that runs to completion?]
+
+\chapter{Obstacles}
+
+\chapter{Future Work}
+[look at future work listed in each paper]
+
+parallel/multicore
+
+formal semantics of mk
+
+identify current limitations of current relational techniques, and
+develop new relational constructs and techniques to overcome these
+limitations
+
+identify fundamental limitations of relational programming--what can't
+we do, ever?
+
+determine how to better combine relational features in a single
+implementation (the mkit approach)
+
+tools and techniques for automatic derivation and/or ``purification''
+transformations
+
+additional constraints/CLP/CHR
+
+prove correctness of walk agorithm and rest of core implementation
+
+\chapter{Related Work}
+[look at related work sections of each paper and of TRS]
+
+[One of Siskind's PhD students said that there is a researcher working
+on making functions ``run backwards''.  Dan thinks his name is
+C. Hennie.  Dan doesn't think his work is directly relevant, but I
+need to check anyway.  Maybe he has some useful techniques.]
+
+Apt's papers: 'Declarative Programming in Prolog' and 'Declarative
+Interpretation Reconsidered'
+
+Work on design patterns for logic programs.
+
+Mercury, Curry
+
+Dan thinks I need to discuss modes, perhaps in the context of Mercury
+
+BinProlog (for unnesting/CPS-style intermediate language)
+
+Combinators for Logic Programming.  Work of Hanus.
+
+Schelog/Prolog on a Page.  Other implementations of logic languages in
+Scheme or functional languages
+
+Kanren/Sokouza Kanren
+
+alphaProlog, MLSOS, CaML, nominal logic/unification/Urban, Pitts and
+Gabbay
+
+Competing relational arithmetic system from German researchers
+
+ICFP paper by Amr, Dan, Ken, and Oleg on backtracking monads
+
+HOAS as an alternative to nominal logic
+
+CLP
+
+\chapter{Conclusion} 
+[read the conclusions (and abstracts) of papers for more
+contributions, and for more details on the contributions listed below]
+
+Our research makes the following contributions:
+
+--alternative wording--
+
+Contributions of our research:
+
+* a novel relational binary arithmetic system, which does not use
+constraints (other than unification), and has stong termination
+guarantees
+
+* the first implementation of nominal unification using triangular
+substitutions, greatly speeding up our implementation of nominal logic
+programming
+
+* an elegant, continuation-based implementation of tabling,
+demonstrating the advantage of embedding miniKanren in a language with
+higher-order functions
+
+* A novel, \scheme{walk}-based algorithm for variable lookup in
+triangular substitutions, amenable to a variety of optimizations,
+allowing sharing of substitutions, and making backing ``free''
+
+* various implementations of core miniKanren and its variants,
+utilizing the full power of Scheme, and which are concise and easily
+extensible
+
+* a novel relational theorem prover that acts as a proof generator,
+theorem generator, etc.
+
+* descriptions of core miniKanren and its extensions
+
+* a variety of examples demonstrating the power of relational
+programming, including some non-trivial examples
+
+* a collection of idioms, techniques, and langauge constructs that can
+be used for relational programming, including examples of their use, a
+discussion of each technique and when it should or should not be used
+
+* a clear, if controversial, philosophical framework for the
+practicing relational programmer
+
+* a novel approach to expression-level divergence avoidance using
+ferns, including the first shallow embedding of ferns
+
+\chapter{Appendix A: Catalog of Relational Techniques}
+
+\chapter{CV}
+
+
+--------------------
+Try approach of super outline, mapped to the paragraph level, complete
+with topic sentences
+--------------------
+
+chapter-level content from previous dissertation attempt:
+
+miniKanren
+miniKanren implementation
+pure binary arithmetic
+Scheme->miniKanren translation
+alphaKanren
+alphaleanTAP
+tabling
+ferns
+
+content and organization of dissertation must support thesis
+
+need to motivate the desire to write programs as relations
+
+need to talk about the obstacles to relational programming
+
+examples from TRS
+palo example
+arithmetic system (based on hardware metaphors)
+eigen
+rembero and disequality constraints
+tabling
+nominal logic
+Ramana's implementation of alphaKanren with triangular substitutions
+Aziz's trie representation of substitution
+walk and related optimizations
+our philosophy and point of view (perhaps Alan Kay quote)
+HOAS vs. nominal logic
+
+Quotes for each chapter.  See Olin's diss for proper typesetting.
+intermezzos discussing interesting examples or techniques?
+Artwork:  Duane Bibby?  XKCD?  Scott McCloud, Mad Magazine illustrator
+Full color?
+Graphic design?
+Flow chart for determining which techniques to use?
+For each technique, may wish to list all the known relevant tools
+Concept map
+Illustration, a la Dragon Book, showing how all the techniques and
+concepts are related
+Green cover
+
+Dan says I should imagine I'm giving a 6 hour lecture on relational
+programming.  Perhaps I should actually create and give these
+lectures.
+
+May need to tighten up my thesis, to concentrate on our contributions.
+Too many researchers have investigated declarative techniques and
+approaches.  Perhaps title should be something like: New Techniques
+for Declarative Logic Programming.

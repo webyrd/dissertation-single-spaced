@@ -1,0 +1,1042 @@
+\chapter{Applications II:  \alphatap}\label{alphatapchapter}
+
+In this chapter we examine a second application of nominal logic
+programming, a declarative theorem prover for first-order classical
+logic. We call this prover \alphatap, since it is based on the
+\leantapsp\cite{beckert95leantap} prover and written in
+\alphakanren. Our prover is a relation, without mode restrictions;
+given a logic variable as the theorem to be proved, \alphatapsp
+\textit{generates} valid theorems.
+
+\leantapsp is a lean tableau-based theorem prover for first-order
+logic due to \citet{beckert95leantap}.  Written in
+Prolog, it is extremely concise and is capable of a high rate of
+inference. \leantapsp uses Prolog's cut (\texttt{!}) in three of its
+five clauses in order to avoid nondeterminism, and uses
+\mbox{\texttt{copy\_term/2}} to make copies of universally quantified
+formulas. Although Beckert and Posegga take advantage of Prolog's
+unification and backtracking features, their use of the impure cut and
+\mbox{\texttt{copy\_term/2}} makes \leantapsp non-declarative.
+
+% : reordering goals within the prover may cause divergence.
+
+%% new definition of nondeclarative?
+
+In this chapter we translate \leantapsp from Prolog to impure
+miniKanren, using \scheme|match-a| to mimic Prolog's cut, and
+\scheme|copy-termo| to mimic \mbox{\texttt{copy\_term/2}}.  We then show how
+to eliminate these impure operators from our translation. To eliminate the
+use of \scheme|match-a|, we introduce a tagging scheme that makes our
+formulas unambiguous.  To eliminate the use of \scheme|copy-termo|, we
+use substitution instead of copying terms.  Universally quantified
+formulas are used as templates, rather than instantiated directly;
+instead of representing universally quantified variables with logic
+variables, we use the noms of nominal logic. We then use nominal
+unification to write a substitution relation that replaces quantified
+variables with logic variables, leaving the original template
+untouched.
+
+The resulting declarative theorem prover is interesting for two
+reasons. First, because of the technique used to arrive at its
+definition: we use declarative substitution rather than
+\scheme|copy-termo|.  To our knowledge, there is no method for
+copying arbitrary terms declaratively. Our solution is not completely
+general but is useful when a term is used as a template for copying,
+as in the case of \leantap.  Second, because of the flexibility of the
+prover itself: \alphatapsp is capable of instantiating non-ground
+theorems during the proof process, and accepts non-ground
+\textit{proofs}, as well.  Whereas \leantapsp is fully automated and
+either succeeds or fails to prove a given theorem, \alphatapsp can
+accept guidance from the user in the form of a partially-instantiated
+proof, regardless of whether the theorem is ground.
+
+We present an implementation of \alphatapsp in
+section~\ref{implementation} , demonstrating our technique for
+eliminating cut and \mbox{\texttt{copy\_term/2}} from \leantap. Our
+implementation demonstrates our contributions: first, it illustrates a
+method for eliminating common impure operators, and demonstrates the
+use of nominal logic for representing formulas in first-order logic;
+second, it shows that the tableau process can be represented as a
+relation between formulas and their tableaux; and third, it
+demonstrates the flexibility of relational provers to mimic the full
+spectrum of theorem provers, from fully automated to fully dependent
+on the user.
+
+This chapter is organized as follows. In section~\ref{tableau} we
+describe the concept of tableau theorem proving. In
+section~\ref{alphatap} we motivate our declarative prover by examining
+its declarative properties and the proofs it returns. In
+section~\ref{implementation} we present the implementation of
+\alphatap, and in section~\ref{performance} we briefly examine
+\alphatap's performance. Familiarity with tableau theorem proving
+would be helpful; for more on this topic, see the references given in
+section~\ref{tableau}.  In addition, a reading knowledge of Prolog
+would be useful, but is not necessary; for readers unfamiliar with
+Prolog, carefully following the miniKanren and \alphakanrensp code
+should be sufficient for understanding all the ideas in this chapter.
+
+\section{Tableau Theorem Proving}\label{tableau}
+
+We begin with an introduction to tableau theorem proving and its
+implementation in \leantap.
+
+
+Tableau is a method of proving first-order theorems that works by
+refuting the theorem's negation. In our description we assume basic
+knowledge of first-order logic; for coverage of this subject and a
+more complete description of tableau proving, see
+\citet{fitting1996fol}.  For simplicity, we consider only
+formulas in Skolemized \textit{negation normal form} (NNF).
+Converting a formula to this form requires removing existential
+quantifiers through Skolemization, reducing logical connectives so
+that only $\wedge$, $\vee$, and $\neg$ remain, and pushing negations
+inward until they are applied only to literals---see section~3 of
+\citet{beckert95leantap} for details.
+
+To form a tableau, a compound formula is expanded into branches
+recursively until no compound formulas remain.  The leaves of this
+tree structure are referred to as \textit{literals}. \leantapsp forms
+and expands the tableau according to the following rules. When the
+prover encounters a conjunction $x \wedge y$, it expands both $x$ and
+$y$ on the same branch. When the prover encounters a disjunction $x
+\vee y$, it splits the tableau and expands $x$ and $y$ on separate
+branches.  Once a formula has been fully expanded into a tableau, it
+can be proved unsatisfiable if on each branch of the tableau there
+exist two complementary literals $a$ and $\neg a$ (each branch is
+\textit{closed}).  In the case of propositional logic, syntactic
+comparison is sufficient to find complementary literals; in
+first-order logic, sound unification must be used. A closed tableau
+represents a proof that the original formula is unsatisfiable.
+
+ The addition of universal quantifiers makes the expansion process more
+ complicated. To prove a universally quantified formula \mbox{$\forall x. M$}, 
+ \leantapsp generates a logic variable $v$ and expands $M$,
+ replacing all occurrences of $x$ with $v$ (i.e., it expands $M^{\prime}$ where
+ $M^{\prime} = M[v/x]$).  If \leantapsp is unable to close the current branch
+ after this expansion, it has the option of generating another logic
+ variable and expanding the original formula again. When the prover
+ expands the universally quantified formula \mbox{$\forall x.  F(x) \wedge ( \neg F({\sf a})
+   \vee \neg F({\sf b}) )$}, for example, \mbox{$\forall x.  F(x)$}
+ must be expanded twice, since $x$ cannot be instantiated to both
+ \textsf{a} and \textsf{b}.
+
+\section{Introducing \alphatap}\label{alphatap}
+
+We begin by presenting some examples of \alphatap's abilities, both in
+proving ground theorems and in generating theorems. We also explore
+the proofs generated by \alphatap, and show how passing
+partially-instantiated proofs to the prover can greatly improve its
+performance.
+
+\subsection{Running Forwards}\label{forwards}
+
+Both \leantapsp and \alphatapsp can prove ground theorems; in
+addition, \alphatap\ produces a proof.  This proof is a list
+representing the steps taken to build a closed tableau for the
+theorem; \citet{paulson99generic} has shown that translation to
+a more standard format is possible. Since a closed tableau represents
+an unsatisfiable formula, such a list of steps proves that the
+negation of the formula is valid. If the list of steps is ground, the
+proof search becomes deterministic, and \alphatapsp acts as a proof
+checker.
+
+\leantapsp encodes first-order formulas using Prolog terms.  For
+example, the term \mbox{\texttt{(p(b),all(X,(-p(X);p(s(X)))))}}
+represents \mbox{$p($\textsf{b}$) \wedge \forall x . \neg p(x) \vee
+  p(s(x))$}. In our prover, we represent formulas using Scheme lists
+with extra tags:
+
+%, and in our final version we adopt a more extensive tagging
+%scheme. The \schemeresult|forall| binder is represented by
+%\alphakanren's \scheme|tie|, and variables are represented by noms.
+%Our example formula is represented by the ground list:
+
+\schemedisplayspace
+\begin{schemeresponse}
+(and-tag (pos (app p (app b))) (forall (tie anom (or-tag (neg (app p (var-tag anom))) 
+                                                     (pos (app p (app s (var-tag anom))))))))
+
+\end{schemeresponse}
+
+% The Prolog query \mbox{\texttt{prove(Fml,[],[],[],VarLim)}} succeeds
+% if the formula \texttt{Fml} is unsatisfiable.  Similarly, the
+% \alphakanrensp goal \mbox{\scheme|(proveo fml '() '() '() proof)|}
+% succeeds if \scheme|fml| can be shown to be unsatisfiable via the
+% proof \scheme|proof|.
+
+Consider Pelletier Problem 18~\cite{pelletier1986sfp}: \mbox{$\exists
+  y.  \forall x. F(y) \Rightarrow F(x)$}. To prove this theorem in
+\alphatap, we transform it into the following \textit{negation} of the
+NNF:
+
+\schemedisplayspace
+\begin{schemeresponse}
+(forall (tie anom (and-tag (pos (app f (var-tag anom))) (neg (app f (app g1 (var-tag anom)))))))
+\end{schemeresponse}
+
+\noindent where \schemeresult|`(app ,g1 (var-tag anom))| represents the
+application of a Skolem function to the universally quantified
+variable $a$. Passing this formula to the prover, we obtain the proof
+\schemeresult|`(univ conj savefml savefml univ conj close)|. This proof
+lists the steps the prover (presented in section~\ref{matcha}) follows to close
+the tableau. Because both conjuncts of the formula contain the nom
+$a$, we must expand the universally quantified formula more than once.
+
+Partially instantiating the proof helps \alphatapsp prove theorems
+with similar subparts. We can create a non-ground proof that describes
+in general how to prove the subparts and have \alphatapsp fill in the
+trivial differences. This can speed up the search for a proof
+considerably. By inspecting the negated NNF of Pelletier Problem~21,
+for example, we can see that there are at least two portions of the
+theorem that will have the same proof. By specifying the structure of
+the first part of the proof and constraining the identical portions by
+using the same logic variable to represent both, we can give the
+prover some guidance without specifying the whole proof. We pass the
+following non-ground proof to \alphatap:
+
+\schemedisplayspace
+\vspace{-2pt}
+\begin{centering}
+\begin{schemeresponse}
+(conj univ split (conj savefml savefml conj split Xvar Xvar)
+      (conj savefml savefml conj split (close) (savefml split Yvar Yvar)))
+\end{schemeresponse}
+\end{centering}
+\vspace{-2pt}
+
+\noindent On our test machine, our prover solves the original problem
+with no help in 68 milliseconds (ms); given the knowledge that the
+later parts of the proof will be duplicated, the prover takes only 27
+ms. This technique also yields improvement when applied to Pelletier
+Problem 43: inspecting the negated NNF of the formula, we see two
+parts that look nearly identical. The first part of the negated
+NNF---the part representing the theorem itself---has the following
+form:
+
+\schemedisplayspace
+\vspace{-2pt}
+\begin{centering}
+\begin{schemeresponse}
+(and-tag (or-tag (and-tag (neg (app Q (app g4) (app g3)))
+              (pos (app Q (app g3) (app g4))))
+         (and-tag (pos (app Q (app g4) (app g3)))
+              (neg (app Q (app g3) (app g4))))) ...)
+\end{schemeresponse}
+\end{centering}
+\vspace{-2pt}
+
+\noindent Since we suspect that the same proof might suffice for both
+branches of the theorem, we give the prover the partially-instantiated
+proof \mbox{\schemeresult|`(conj split Xvar Xvar)|}. Given just this
+small amount of help, \alphatapsp proves the theorem in 720 ms,
+compared to 1.5 seconds when the prover has no help at all.  While
+situations in which large parts of a proof are identical are rare,
+this technique also allows us to handle situations in which different
+parts of a proof are merely similar by instantiating as much or as
+little of the proof as necessary.
+
+\subsection{Running Backwards}\label{backwards}
+
+% \begin{figure}[H]
+% \begin{centering}
+% \begin{tabular}{| r | c | c | c | c |}
+%   \hline 
+%   Problem & \thinspace \leantap \thinspace\footnotemark[4] \thinspace &
+%   Translation\footnotemark[3] & \thinspace \alphatap\footnotemark[3]
+%   \thinspace & \thinspace \alphatap$\!_G$\footnotemark[4]$^,$\footnotemark[6]  \\
+%   \hline
+%   1 & ? & 
+
+%   \hline
+% \end{tabular}
+% \caption{\alphatap's Performance on Pelletier's Problems\protect\footnotemark[2]
+%   \label{fig:performance}}
+% \end{centering}
+% \end{figure}
+
+
+
+%\vspace{-6pt}
+
+%  Testing our prover on
+% several of Pelletier's 75 problems~\cite{pelletier1986sfp} shows that
+% \alphatapsp is about three to five times slower than our translation
+% of \leantap. The translation solves problem 32, for example, in about
+% one second, while \alphatapsp takes about three
+% seconds; problem 26 takes our translation of \leantapsp about 13
+% seconds, while \alphatapsp needs 36 seconds.
+
+Unlike \leantap, \alphatapsp can generate valid theorems.  Some
+interpretation of the results is required since the theorems generated
+are negated formulas in NNF.\footnote{The full implementation of
+  \alphatapsp includes a simple declarative translator from negated
+  NNF to a positive form.}  In the example
+
+\smallskip
+
+\scheme|(run1 (q) (exist (x) (proveo q '() '() '() x)))|
+
+\hspace{0.1cm}$\Rightarrow$
+\schemeresult|`((and-tag (pos (app _.0)) (neg (app _.0))))|
+
+\smallskip
+
+\noindent 
+the reified logic variable \schemeresult|_.0| represents any
+first-order formula $p$, and the entire answer represents the formula
+$p \wedge \neg p$.  Negating this formula yields the original theorem:
+$\neg p \vee p$, or the law of excluded middle.  We can also generate
+more complicated theorems; here we use the ``generate and test'' idiom
+to find the first theorem matching the negated NNF of the inference
+rule {\it modus ponens}:
+
+\schemedisplayspace
+\begin{schemedisplay}
+(run1 (q)
+  (exist (x)
+    (proveo x '() '() '() q)
+    (== `(and-tag (and-tag (or-tag (neg (app a)) (pos (app b))) (pos (app a))) (neg (app b)))
+        x)))
+\end{schemedisplay}
+ \vspace{-.1cm}
+\noindent $\Rightarrow$ \schemeresult|`((conj conj split (savefml close) (savefml savefml close)))|
+
+\smallskip
+
+\noindent This process takes about 5.1 seconds; {\it modus ponens} is the
+173rd theorem to be generated, and the prover also generates a proof
+of its validity. When this proof is given to \alphatap, {\it modus ponens}
+is the sixth theorem generated, and the process takes only 20 ms.
+
+Thus the declarative nature of \alphatapsp is useful both for
+generating theorems and for producing proofs. Due to this flexibility,
+\alphatapsp could become the core of a larger proof system.  Automated
+theorem provers like \leantapsp are limited in the complexity of the
+problems they can solve, but given the ability to accept assistance
+from the user, more problems become tractable.
+
+%can solve more difficult problems.
+
+
+%\footnotetext[7]{\alphatap$\!_G$ uses the unique name and preprocessor
+%  approach described in section 4.2.}
+
+As an example, consider Pelletier Problem 47: Schubert's Steamroller.
+This problem is difficult for tableau-based provers like \leantapsp
+and \alphatap, and neither can solve it
+automatically~\cite{beckert95leantap}.  Given some help, however,
+\alphatapsp can prove the Steamroller. Our approach is to prove a
+series of smaller lemmas that act as stepping stones toward the final
+theorem; as each lemma is proved, it is added as an assumption in
+proving the remaining ones.  The proof process is automated---the user
+need only specify which lemmas to prove and in what order. Using this
+strategy, \alphatapsp proves the Steamroller in about five seconds;
+the proof requires twenty lemmas.
+
+
+\alphatapsp thus offers an interesting compromise between large proof
+assistants and smaller automated provers. It achieves some of the
+capabilities of a larger system while maintaining the lean deduction
+philosophy introduced by \leantap. Like an automated prover, it is
+capable of proving simple theorems without user guidance. Confronted
+with a more complex theorem, however, the user can provide a
+partially-instantiated proof; \alphatapsp can then check the proof and
+fill in the trivial parts the user has left out.  Because \alphatapsp
+is declarative, the user may even leave required axioms out of the
+theorem to be proved and have the system derive them. This flexibility
+comes at no extra cost to the user---the prover remains both concise
+and reasonably efficient.
+
+%% New
+
+The flexibility of \alphatapsp means that it could be made interactive
+through the addition of a read-eval-print loop and a simple proof
+translator between \alphatap's proofs and a more human-readable
+format. Since the proof given to \alphatapsp may be partially
+instantiated, such an interface would allow the user to conveniently
+guide \alphatapsp in proving complex problems. With the addition of
+equality and the ability to perform single beta steps, this
+flexibility would become more interesting---in addition to reasoning
+about programs and proving properties about them, \alphatapsp would
+instantiate non-ground programs during the proof process.
+
+
+
+
+\section{Implementation}\label{implementation}
+
+We now present the implementation of \alphatap. We begin with a
+translation of \leantapsp from Prolog into \alphakanren. We then show
+how to eliminate the translation's impure features through a
+combination of substitution and tagging.
+
+
+\leantapsp implements both expansion and closing of the tableau. When
+the prover encounters a conjunction, it uses its argument
+\texttt{UnExp} as a stack (Figure~\ref{fig:translation}): \leantapsp
+expands the first conjunct, pushing the second onto the stack for
+later expansion. If the first conjunct cannot be refuted, the second
+is popped off the stack and expansion begins again.  When a
+disjunction is encountered, the split in the tableau is reflected by
+two recursive calls. When a universal quantifier is encountered, the
+quantified variable is replaced by a new logic variable, and the
+formula is expanded.  The \texttt{FreeV} argument is used to avoid
+replacing the free variables of the formula.  \leantapsp keeps a list
+of the literals it has encountered on the current branch of the
+tableau in the argument \texttt{Lits}.  When a literal is encountered,
+\leantapsp attempts to unify its negation with each literal in
+\texttt{Lits}; if any unification succeeds, the branch is closed.
+Otherwise, the current literal is added to \texttt{Lits} and expansion
+continues with a formula from \texttt{UnExp}.
+
+
+\subsection{Translation to \alphakanren}\label{translation}
+
+While \alphakanrensp is similar to Prolog with the addition of nominal
+unification, \alphakanrensp uses a variant of interleaving
+depth-first search~\cite{backtracking}, so the order of
+\scheme|conde| or \scheme|match-e| clauses in \alphakanrensp is irrelevant. Because of
+Prolog's depth-first search, \leantapsp must use \texttt{VarLim} to
+limit its search depth; in \alphakanren, \texttt{VarLim} is not
+necessary, and thus we omit it.
+
+
+In Figure~\ref{fig:translation} we present mK\leantap, our translation
+of \leantapsp into \alphakanren; we label two clauses (\onet, \twot),
+since we will modify these clauses later. To express Prolog's cuts,
+our definition uses \scheme|match-a|.  The final two clauses of
+\leantapsp do not contain Prolog cuts; in mK\leantap, they are
+combined into a single clause containing a \scheme|conde|.  In place
+of \leantap\thinspace's recursive call to \texttt{prove} to check the
+membership of \texttt{Lit} in \texttt{Lits}, we call \scheme|membero|,
+which performs a membership check using sound unification.\footnote{We define \scheme|membero| in Figure~\ref{fig:ending}; \scheme|membero| \emph{must} use sound unification, and cannot use \scheme|==-no-check|.}  % Prolog's \texttt{copy\_term/2} is
+% not built into \alphakanren; this addition is available as part of the
+% mK\leantapsp source code.
+
+
+%\begin{figure}[ht]
+\begin{figure}[H]
+%\vspace{-.3in}
+
+\begin{tabular}{l l}
+
+ &
+
+\begin{minipage}{2.3in}
+\begin{schemedisplay}
+ (define proveo
+   (lambda (fml unexp lits freev)
+     (match-a fml
+\end{schemedisplay}
+\end{minipage} \\
+
+
+\begin{minipage}{2.3in}
+\begin{verbatim}
+prove((E1,E2),UnExp,Lits,
+      FreeV,VarLim) :- !,
+  prove(E1,[E2|UnExp],Lits,
+        FreeV,VarLim).
+\end{verbatim}
+\end{minipage}
+ &
+\begin{minipage}{2in}
+\begin{schemedisplay}
+      (`(and-tag ,e1 ,e2)
+        (proveo e1 `(,e2 . ,unexp) lits freev))
+\end{schemedisplay}
+\end{minipage}
+\\
+
+\begin{minipage}{2in}
+\begin{verbatim}
+prove((E1;E2),UnExp,Lits,
+      FreeV,VarLim) :- !,
+  prove(E1,UnExp,Lits,FreeV,VarLim),
+  prove(E2,UnExp,Lits,FreeV,Varlim).
+\end{verbatim}
+\end{minipage}
+ &
+\begin{minipage}{2in}
+\vspace{1mm}
+\begin{schemedisplay}
+      (`(or-tag ,e1 ,e2)
+        (proveo e1 unexp lits freev)
+        (proveo e2 unexp lits freev))
+\end{schemedisplay}
+\vspace{1mm}
+\end{minipage}
+\\
+
+\begin{minipage}{2in}
+\begin{verbatim}
+prove(all(X,Fml),UnExp,Lits,
+      FreeV,VarLim) :- !,
+  \+ length(FreeV,VarLim),
+  copy_term((X,Fml,FreeV),
+            (X1,Fml1,FreeV)),
+  append(UnExp,[all(X,Fml)],UnExp1),
+  prove(Fml1,UnExp1,Lits,
+        [X1|FreeV],VarLim).
+\end{verbatim}
+\end{minipage}
+ &
+\begin{minipage}{2in}
+\begin{schemedisplay}
+     $\onet$(`(forall ,x ,body)
+         (exist (x1 body1 unexp1)
+           (copy-termo `(,x ,body ,freev) 
+                       `(,x1 ,body1 ,freev))
+           (appendo unexp `(,fml) unexp1)
+           (proveo body1 unexp1 lits 
+                   `(,x1 . ,freev))))
+\end{schemedisplay}
+\end{minipage}
+\\
+
+\begin{minipage}{2in}
+\begin{verbatim}
+prove(Lit,_,[L|Lits],_,_) :-
+  (Lit = -Neg; -Lit = Neg) ->
+   (unify(Neg,L); 
+    prove(Lit,[],Lits,_,_)).
+\end{verbatim}
+
+\end{minipage}
+ &
+\begin{minipage}{2in}
+\begin{schemedisplay}
+     $\twot$(fml
+         (conde
+           ((match-a `(,fml ,neg)
+              (`((not ,neg) ,neg))
+              (`(,fml (not ,fml))))
+            (membero neg lits))
+           \end{schemedisplay}
+           \end{minipage}
+           \\
+
+           \begin{minipage}{2in}
+           \begin{verbatim}
+           prove(Lit,[Next|UnExp],Lits,
+                    FreeV,VarLim) :-
+           prove(Next,UnExp,[Lit|Lits],
+                           FreeV,VarLim).
+           \end{verbatim} 
+           \end{minipage}
+           &
+           \begin{minipage}{2in}
+           \begin{schemedisplay}
+        ((exist (next unexp1)
+           (== `(,next . ,unexp1) unexp)
+           (proveo next unexp1 `(,fml . ,lits) 
+                   freev))))))))
+\end{schemedisplay}
+\end{minipage}
+\\
+
+
+\end{tabular}
+\caption{\leantapsp and mK\leantap\thinspace: a translation from Prolog to \alphakanren
+  \label{fig:translation}}
+%\vspace{-.3in}
+\end{figure}
+
+
+\subsection{Eliminating \copytermo}\label{copytermo}
+\enlargethispage{1\baselineskip} %
+
+Since \scheme|copy-termo| is an impure operator, its use makes
+\scheme|proveo| non-declarative: reordering the goals in the prover
+can result in different behavior. For example, moving the call to
+\scheme|copy-termo| after the call to \scheme|proveo| causes the
+prover to diverge when given any universally quantified formula. To
+make our prover declarative, we must eliminate the use of
+\scheme|copy-termo|.
+
+Tagging the logic variables that represent universally quantified
+variables allows the use of a declarative technique that creates two
+pristine copies of the original term: one copy may be expanded and the
+other saved for later copying.  Unfortunately, this copying examines
+the entire body of each quantified formula and instantiates the
+original term to a potentially invalid formula.
+
+Another approach is to represent quantified variables with symbols or
+strings. When a new instantiation is needed, a new variable name can
+be generated, and the new name can be substituted for the old without
+affecting the original formula. This solution does not destroy the
+prover's input, but it is difficult to ensure that the provided data
+is in the correct form declaratively: if the formula to be proved is
+non-ground, then the prover must generate unique names.  If the
+formula \textit{does} contain these names, however, the prover must
+\textit{not} generate new ones. This problem can be solved with a
+declarative preprocessor that expects a logical formula
+\textit{without} names and puts them in place. If the preprocessor is
+passed a non-ground formula, it instantiates the formula to the
+correct form. %We have implemented this strategy in a Prolog prover we
+%call \alphatap$\!_G$; 
+The requirement of a preprocessor, however,
+means the prover itself is not declarative.
+
+We use nominal logic to solve the \scheme|copy-termo| problem.
+Nominal logic is a good fit for this problem, as it is designed to
+handle the complexities of dealing with names and binders
+declaratively.
+%Using
+%noms to represent universally quantified variables and the
+%\scheme|tie| operator to represent the $\forall$ binder allows us to
+%avoid the use of logic variables to represent quantified variables.
+Since noms represent unique names, we achieve the benefits of the
+symbol or string approach without the use of a preprocessor. We can
+generate unique names each time we encounter a universally quantified
+formula, and use nominal unification to perform the renaming of the
+quantified variable. If the original formula is uninstantiated, our
+newly-generated name is unique and is put in place correctly; we no
+longer need a preprocessor to perform this function.
+
+Using the tools of nominal logic, we can modify mK\leantapsp to
+represent universally quantified variables using noms and to perform
+substitution instead of copying.  When the prover reaches a literal,
+however, it must replace each nom with a logic variable, so that
+unification may successfully compare literals. To accomplish this, we
+associate a logic variable with each unique nom, and replace every nom
+with its associated variable before comparing literals. These
+variables are generated each time the prover expands a quantified
+formula.
+
+To implement this strategy, we change our representation of formulas
+slightly. Instead of representing $\forall x. F(x)$ as
+\mbox{\schemeresult|`(forall Xvar (f Xvar))|}, we use a nom wrapped in
+a \scheme|var-tag| tag to represent a variable reference, and the
+term constructor \scheme|tie| to represent the $\forall$ binder:
+\mbox{\schemeresult|`(forall (tie anom (f (var-tag anom))))|}, where $a$ is
+a nom.  The \scheme|var-tag| tag allows us to distinguish noms
+representing variables from other formulas. We now write a relation
+\scheme|subst-lito| to perform substitution of logic variables for
+tagged noms in a literal, and we modify the literal case of
+\scheme|proveo| to use it. We also replace the clause handling
+\schemeresult|forall| formulas and define \scheme|lookupo|. The two
+clauses of \scheme|lookupo| overlap, but since each mapping in the
+environment is from a unique nom to a logic variable, a particular nom
+will never appear twice.
+
+We present the changes needed to eliminate \scheme|copy-termo| from
+mK\leantapsp in Figure~\ref{fig:changes}. Instead of copying the body
+of each universally quantified formula, we generate a logic variable
+\scheme|x| and add an association between the nom representing the
+quantified variable and \scheme|x| to the current environment. When we
+prepare to close a branch of the tableau, we call \scheme|subst-lito|,
+replacing the noms in the current literal with their associated logic
+variables.
+
+
+\begin{figure}[H]
+
+\noindent \begin{tabular}{l l}
+\begin{minipage}{2.5in}
+\small
+\begin{schemedisplay}
+$\onet$(`(forall (tie-tag ,@a ,body))
+   (exist (x unexp1)
+     (appendo unexp `(,fml) unexp1)
+     (proveo body unexp1 lits
+             `((,a . ,x) . ,env))))
+
+$\twot$(fml
+  (exist (lit)
+    (subst-lito fml env lit)
+    (conde
+      ((match-a `(,lit ,neg)
+         (`((not ,neg) ,neg))
+         (`(,lit (not ,lit))))
+       (membero neg lits))
+      ((exist (next unexp1)
+         (== `(,next . ,unexp1) unexp)
+         (proveo next unexp1 `(,lit . ,lits) 
+                 env))))))
+\end{schemedisplay}
+
+\vspace{.1cm}
+\end{minipage}
+&
+
+
+\begin{minipage}{1.2in}
+\small
+%\schemeinput{code/lookupo}
+\begin{schemedisplay}
+(define lookupo
+  (lambda (a env out)
+    (match-e env
+      (`((,a . ,out) . ,rest))
+      (`(,first . ,rest)
+       (lookupo a rest out)))))
+\end{schemedisplay}
+
+\begin{schemedisplay}
+(define subst-lito
+  (lambda (fml env out)
+    (match-a `(,fml ,out)
+      (`((var-tag ,a) ,out)
+       (lookupo a env out))
+      (`((,e1 . ,e2) (,r1 . ,r2))
+       (subst-lito e1 env r1)
+       (subst-lito e2 env r2))
+      (`(,fml ,fml)))))
+\end{schemedisplay}
+
+\end{minipage}
+
+\end{tabular}
+
+\caption{Changes to mK\leantapsp to eliminate \protect\scheme|copy-termo|
+  \label{fig:changes}}
+%\vspace{-.2in}
+\end{figure}
+
+The original \mbox{\texttt{copy\_term/2}} approach used by \leantapsp and
+mK\leantapsp avoids replacing free variables by copying the list
+\scheme|`(,x ,body ,freev)|. The copied version is unified with the list
+\scheme|`(x1 body1 ,freev)|, so that \textit{only} the variable
+\scheme|x| will be replaced by a new logic variable---the free
+variables will be copied, but those copies will be unified with the
+original variables afterwards. Since our substitution strategy does
+not affect free variables, the \scheme|freev| argument is no longer
+needed, and so we have eliminated it.
+
+
+\subsection{Eliminating \matchasymbol}\label{matcha}
+
+Both \scheme|proveo| and \scheme|subst-lito| use \scheme|match-a|
+because the clauses that recognize literals overlap with the other
+clauses. To solve this problem, we have designed a tagging scheme that
+ensures that the clauses of our substitution and \scheme|proveo|
+relations do not overlap.  To this end, we tag both positive and
+negative literals, applications, and variables. Constants are
+represented by applications of zero arguments. Our prover thus accepts
+formulas of the following form:
+
+
+% \begin{center}
+%   \begin{tabular}{lcl}
+%     $<$Fml$>$ & $\rightarrow$ & $($\textsf{or} $<$Fml$>$ $<$Fml$>)$ 
+% % \\ & $|$ & 
+% $|$ $($\textsf{and} $<$Fml$>$ $<$Fml$>)$ 
+%  \\ & $|$ & 
+% $($\textsf{forall} $<$nom$>$ $<$Fml$>)$ 
+% % \\ & $|$ & 
+% $|$ $($\textsf{lit} $<$Lit$>)$ 
+% \\
+%     $<$Lit$>$ & $\rightarrow$ & $($\textsf{pos} $<$Term$>)$ 
+% % \\ & $|$ & 
+% $|$ $($\textsf{neg} $<$Term$>)$ 
+%  \\ 
+% $<$Term$>$ & $\rightarrow$ & $($\textsf{sym} $<$symbol$>)$ 
+% % \\ & $|$ & 
+% $|$ $($\textsf{var} $<$nom$>)$ 
+% % \\ & $|$ & 
+% $|$ $($\textsf{app} $<$symbol$>$ $<$Term$>$*$)$ \\
+%   \end{tabular}
+% \end{center}
+
+% \begin{center}
+%   \begin{tabular}{lcl}
+%     Fml & $\rightarrow$ & $($\textsf{and} Fml Fml$)$ 
+% % \\ & $|$ & 
+% $|$ $($\textsf{or} Fml Fml$)$ 
+% % \\ & $|$ & 
+% $|$ $($\textsf{forall} $($\scheme|tie| nom Fml$))$ 
+% % \\ & $|$ & 
+% $|$ Lit 
+% \\
+%     Lit & $\rightarrow$ & $($\textsf{pos} Term$)$ 
+% % \\ & $|$ & 
+% $|$ $($\textsf{neg} Term$)$ 
+%  \\ 
+% Term & $\rightarrow$ & %$($\textsf{sym} symbol$)$ 
+% % \\ & $|$ & 
+% %$|$ 
+% $($\textsf{var} nom$)$ 
+% % \\ & $|$ & 
+% $|$ $($\textsf{app} symbol Term*$)$ \\
+%   \end{tabular}
+% \end{center}
+
+%\vspace{-.2cm}
+
+\begin{center}
+  \begin{tabular}{lcl}
+    \textit{Fml} & $\rightarrow$ & $($\textsf{and}  \textit{Fml}  \textit{Fml}$)$ 
+$|$ $($\textsf{or}  \textit{Fml} \textit{Fml}$)$ 
+$|$ $($\textsf{forall} $($\scheme|tie| \textit{Nom} \textit{Fml}$))$ 
+$|$ \textit{Lit}
+\\
+    \textit{Lit} & $\rightarrow$ & $($\textsf{pos} \textit{Term}$)$ 
+$|$ $($\textsf{neg} \textit{Term}$)$ 
+ \\ 
+\textit{Term} & $\rightarrow$ &
+$($\textsf{var} \textit{Nom}$)$ 
+$|$ $($\textsf{app} \textit{Symbol} \textit{Term}*$)$ \\
+  \end{tabular}
+\end{center}
+
+%\vspace{-.2cm}
+
+This scheme has been chosen carefully to allow unification to compare
+literals. In particular, the tags on variables \textit{must} be
+discarded before literals are compared.  Consider the two non-ground
+literals \mbox{\schemeresult|`(not (f Xvar))|} and
+\mbox{\schemeresult|`(f (p Yvar))|}.  These literals are complementary:
+the negation of one unifies with the other, associating $x$ with
+\mbox{\schemeresult|`(p Yvar)|}. When we apply our tagging scheme,
+however, these literals become \mbox{\schemeresult|`(neg (app f (var-tag Xvar)))|} and \mbox{\schemeresult|`(pos (app f (app p (var-tag Yvar))))|}, respectively, and are no longer complementary: their
+subexpressions \mbox{\schemeresult|`(var-tag Xvar)|} and
+\mbox{\schemeresult|`(app p (var-tag Yvar))|} do not unify. To avoid this
+problem, our substitution relation discards the \textsf{var} tag when
+it replaces noms with logic variables.
+
+\begin{figure}[H]
+%\vspace{-.2in}
+\hspace{-.1in}
+\begin{tabular}{l l}
+\begin{minipage}{1.8in}
+%\schemeinput{code/alphatapleft}
+\begin{schemedisplay}
+(define proveo
+  (lambda (fml unexp lits env proof)
+    (match-e `(,fml ,proof)
+      (`((and-tag ,e1 ,e2) (conj . ,prf))
+       (proveo e1 `(,e2 . ,unexp)
+               lits env prf))
+      (`((or-tag ,e1 ,e2) (split ,prf1 ,prf2))
+       (proveo e1 unexp lits env prf1)
+       (proveo e2 unexp lits env prf2))
+      (`((forall (tie-tag ,@a ,body)) (univ . ,prf))
+       (exist (x unexp1)
+         (appendo unexp `(,fml) unexp1)
+         (proveo body unexp1 lits
+                 `((,a . ,x) . ,env) prf)))
+      (`(,fml ,proof)
+       (exist (lit)
+         (subst-lito fml env lit)         
+         (conde
+           ((== `(close) proof)
+            (match-e `(,lit ,neg)
+              (`((pos ,tm) (neg ,tm)))
+              (`((neg ,tm) (pos ,tm))))              
+            (membero neg lits))
+           ((exist (next unexp1 prf)
+              (== `(,next . ,unexp1) unexp)
+              (== `(savefml . ,prf) proof)
+              (proveo next unexp1 `(,lit . ,lits)
+                      env prf)))))))))
+\end{schemedisplay}
+%\vspace{1.3cm}
+\end{minipage}
+
+& 
+
+\hspace{-0.3in}
+\begin{minipage}{1.8in}
+%\schemeinput{code/alphatapright}
+\begin{schemedisplay}
+(define appendo
+  (lambda-e (ls s out)
+    (`(() ,s ,s))
+    (`((,a . ,d) ,s (,a . ,r))
+     (appendo d s r))))
+
+(define subst-lito
+  (lambda-e (fml env out)
+    (`((pos ,l) ,env (pos ,r))
+     (subst-termo l env r))
+    (`((neg ,l) ,env (neg ,r))
+     (subst-termo l env r))))
+
+(define subst-termo
+  (lambda-e (fml env out)
+    (`((var-tag ,a) ,env ,out)
+     (lookupo a env out))
+    (`((app ,f . ,d) ,env (app ,f . ,r))
+     (subst-term* d env r))))
+
+(define subst-term*
+  (lambda-e (tm* env out)
+    (`(() __ ()))
+    (`((,e1 . ,e2) ,env (,r1 . ,r2))
+     (subst-termo e1 env r1)
+     (subst-term* e2 env r2))))
+
+(define membero
+  (lambda (x ls)
+    (exist (a d)
+      (== `(,a . ,d) ls)
+      (conde
+        ((== a x))
+        ((membero x d))))))
+\end{schemedisplay}
+%\vspace{1.0cm}
+\end{minipage}
+
+\end{tabular}
+\caption{Final definition of \alphatap
+  \label{fig:ending}}
+%\vspace{-.3in}
+\end{figure}
+
+Given our new tagging scheme, we can easily rewrite our substitution
+relation without the use of \scheme|match-a|. We simply follow the
+production rules of the grammar, defining a relation to recognize
+each.
+
+Finally, we modify \scheme|proveo| to take advantage of the same tags.
+We also add a \scheme|proof| argument to \scheme|proveo|.  We call
+this version of the prover \alphatap, and present its definition in
+Figure~\ref{fig:ending}. It is declarative, since we have eliminated
+the use of \scheme|copy-termo| and every use of \scheme|match-a|. In
+addition to being a sound and complete theorem prover for first-order
+logic, \alphatapsp can now generate valid first-order theorems.
+
+
+
+
+
+
+\section{Performance}\label{performance}
+\enlargethispage{1\baselineskip} %
+
+Like the original \leantap, \alphatapsp can prove many theorems in
+first-order logic. Because it is declarative, \alphatapsp is generally
+slower at proving ground theorems than mK\leantap, which is slower
+than the original \leantap. Figure~\ref{fig:performance} presents a
+summary of \alphatap's performance on the first 46 of Pelletier's 75
+problems~\cite{pelletier1986sfp}, showing it to be roughly twice as
+slow as mK\leantap.
+
+These performance numbers suggest that while there is a penalty to be
+paid for declarativeness, it is not so severe as to cripple the
+prover. The advantage mK\leantapsp enjoys over the original \leantapsp
+in Problem 34 is due to \alphakanren's interleaving search strategy;
+as the result for mK\leantapsp shows, the original \leantapsp is faster
+than \alphatapsp for any given search strategy.
+
+Many automated provers now use the TPTP problem
+library~\cite{stucliffe1994tpl} to assess performance. Even though it
+is faster than \alphatap, \leantapsp solves few of the TPTP
+problems. The Pelletier Problems, on the other hand, fall into the
+class of theorems \leantapsp was designed to prove, and so we feel
+they provide a better set of tests for the comparison between
+\leantapsp and \alphatap.
+
+\begin{figure}[h]
+%\vspace{-.2in}
+\begin{centering}
+\begin{tabular}{l l}
+
+\hspace{-.1in}
+\begin{minipage}{2.7in}
+\begin{tabular}{| r | c | c | c | } %c |
+  \hline 
+  \thinspace \thinspace \# & \thinspace \leantap  \thinspace &
+  mK\leantap \thinspace & \thinspace \alphatap
+  \thinspace %& \thinspace \alphatap$\!_G$\footnotemark[5]$^,$\footnotemark[7]
+  \\
+  \hline
+1 & 0.1 & 0.7 & 2.0 \\ 
+2 & 0.0 & 0.1 & 0.3 \\ 
+3 & 0.0 & 0.2 & 0.5 \\ 
+4 & 0.0 & 1.0 & 1.7 \\ 
+5 & 0.1 & 1.2 & 2.5 \\ 
+6 & 0.0 & 0.1 & 0.2 \\ 
+7 & 0.0 & 0.1 & 0.2 \\ 
+8 & 0.0 & 0.3 & 0.8 \\ 
+9 & 0.1 & 4.3 & 9.7 \\ 
+10 & 0.3 & 5.5 & 10.2 \\ 
+11 & 0.0 & 0.3 & 0.6 \\ 
+12 & 0.6 & 17.7 & 31.9 \\ 
+13 & 0.1 & 3.7 & 8.2 \\ 
+14 & 0.1 & 4.2 & 9.7 \\ 
+15 & 0.0 & 0.8 & 1.9 \\ 
+16 & 0.0 & 0.2 & 0.6 \\ 
+17 & 1.1 & 9.2 & 18.1 \\ 
+18 & 0.1 & 0.5 & 1.2 \\ 
+19 & 0.3 & 15.1 & 33.5 \\ 
+20 & 0.5 & 8.1 & 12.7 \\ 
+21 & 0.4 & 22.1 & 38.7 \\ 
+22 & 0.1 & 3.4 & 6.4 \\ 
+23 & 0.1 & 2.5 & 5.4 \\ 
+
+  \hline
+\end{tabular}
+
+\end{minipage}
+
+&
+
+\begin{minipage}{2.5in}
+\begin{tabular}{| r | c | c | c |} %c |
+  \hline 
+  \# & \thinspace \leantap  \thinspace &
+  mK\leantap \thinspace & \thinspace \alphatap
+  \thinspace %& \thinspace \alphatap$\!_G$\footnotemark[5]$^,$\footnotemark[7]  
+\\
+  \hline
+24 & 1.7 & 31.9 & 60.3 \\ 
+25 & 0.2 & 7.5 & 14.1 \\ 
+26 & 0.8 & 130.9 & 187.5 \\ 
+27 & 2.3 & 40.4 & 79.3 \\ 
+28 & 0.3 & 19.1 & 29.6 \\ 
+29 & 0.1 & 27.9 & 57.0 \\ 
+30 & 0.1 & 4.2 & 9.6 \\ 
+31 & 0.3 & 13.2 & 23.1 \\ 
+32 & 0.2 & 23.9 & 42.4 \\ 
+33 & 0.1 & 15.9 & 39.2 \\ 
+34 & 199129.0  & 7272.9 & 8493.5 \\ 
+35 & 0.1 & 0.5 & 1.1 \\ 
+36 & 0.2 & 6.7 & 12.4 \\ 
+37 & 0.8 & 123.3 & 169.2 \\ 
+38 & 8.9 & 4228.8 & 8363.8 \\ 
+39 & 0.0 & 1.1 & 2.8 \\ 
+40 & 0.2 & 8.1 & 19.2 \\ 
+41 & 0.1 & 6.9 & 17.0 \\ 
+42 & 0.4 & 15.0 & 32.1 \\ 
+43 & 43.2 & 668.4 & 1509.6 \\ 
+44 & 0.3 & 15.1 & 35.7 \\ 
+45 & 3.4 & 145.3 & 239.7 \\ 
+46 & 7.7 & 505.5 & 931.2 \\ 
+
+  \hline
+\end{tabular}
+\end{minipage}
+\end{tabular}
+
+\caption{Performance of \leantap, mK\leantap, and \alphatapsp on the
+  first 46 Pelletier Problems. 
+  All times are in milliseconds, averaged over 100 trials.
+  All tests were run \mbox{under} Debian
+  Linux on an IBM Thinkpad 
+  X40 with a 1.1GHz Intel Pentium-M processor and 768MB RAM. 
+  \leantapsp tests were run under SWI-Prolog 5.6.55;
+  mK\leantapsp and \alphatapsp tests were run under Ikarus Scheme
+  0.0.3+.
+  \label{fig:performance}}
+\end{centering}
+%\vspace{-.2in}
+
+\end{figure}
+
+
+\section{Applicability of These Techniques}
+
+To avoid the use of \scheme|copy-termo|, we have represented
+universally quantified variables with noms rather than logic
+variables, allowing us to perform substitution instead of copying.  To
+eliminate \scheme|match-a|, we have enhanced the tagging scheme for
+representing formulas.
+
+Both of these transformations are broadly applicable. When
+\scheme|match-a| is used to handle overlapping clauses, a carefully
+crafted tagging scheme can often be used to eliminate
+overlapping. When terms must be copied, substitution can often be used
+instead of \scheme|copy-termo|---in the case of \alphatap, we use a
+combination of nominal unification and substitution.

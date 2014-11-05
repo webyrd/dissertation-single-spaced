@@ -1,0 +1,55 @@
+INSTALL
+SLaTeX Version 2.4
+(c) Dorai Sitaram
+
+Installation instructions for SLaTeX
+
+-
+
+1) Ensure you have the scmxlate program installed on
+your system.  scmxlate is available at
+http://www.ccs.neu.edu/~dorai/scmxlate/scmxlate.html
+
+1) Unpack the slatex tarball, creating a directory
+called slatex 
+
+2) Edit the file scmxlate-slatex-src.scm as
+suggested in the comments there.  
+
+3) Invoke your Scheme (or Common Lisp) listener and load
+the file scmxlate/scmxlate.scm, using its correct relative
+or full pathname.
+
+(load ".../scmxlate/scmxlate.scm")
+
+This will configure SLaTeX for your Scheme/CL dialect
+and operating system, creating an appropriate
+slatex.scm file.  A script file (called slatex.bat on
+Windows and just slatex on Unix) is also created for
+convenient invocation on your operating system command
+line.  You may need to check slatex[.bat] to see
+that it has correct pathnames. 
+
+4) Copy or move or link slatex.scm into the location
+you identified in scmxlate-slatex-src.scm.  
+
+6) Copy or move or link slatex.sty into a suitable
+place, e.g., somewhere in your TEXINPUT(S) path.  For
+installing on system, place in directory containing
+the LaTeX style files. 
+
+7) (If your platform is a Mac, ignore this.)  Copy or move
+or link the shellscript slatex or batfile slatex.bat to a
+suitable place in your PATH, e.g., your bin or the system
+bin.  
+
+8) Run slatex on slatxdoc.tex for documentation.
+(This also checks that slatex does indeed work on your
+machine.)  Refer to slatxdoc.dvi when befuddled.
+
+9) If a shellscript/batfile slatex[.bat] cannot
+be meaningfully used on your system, you can use the
+file callsla.scm, which is also created by the
+configuration process.  Load callsla.scm into your
+Scheme/CL and call the procedure call-slatex with your
+document filename as argument.

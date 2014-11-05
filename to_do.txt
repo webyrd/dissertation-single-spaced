@@ -1,0 +1,181 @@
+Organization
+============
+
+Chapter 1
+----------
+Introduction
+
+
+Chapter 2
+----------
+Introduction to Core miniKanren
+  
+Techniques:
+  Basic Techniques
+Applications:
+  Simple Examples
+Implementations:
+  Core miniKanren
+  Optimizing walk
+
+  
+Chapter 3
+---------
+<common theme/title/intro???>
+
+Techniques:
+  Deriving Bounds for Bottom Avoidance
+Applications:
+  Pure Binary Arithmetic
+Implementations:
+  Interleaving Search
+
+  
+Chapter 4
+---------
+<common theme/title/intro???>
+
+Techniques:
+  Disequality Constraints
+Applications:
+  Scheme-to-miniKanren Translation
+Implementations:
+  Disequality Constraints  
+
+
+Chapter 5
+---------
+<common theme/title/intro???>
+
+Techniques:
+  Nominal Logic
+  Removing copy-termo
+Applications:
+  Relational Type Inferencer
+  alphaleanTAP
+Implementations:
+  alphaKanren
+
+
+Chapter 6
+---------
+<common theme/title/intro???>
+
+Techniques:
+  Bottom Avoidance via Tabling
+Applications:
+  PLT-Redex-style Reducer
+Implementations:
+  Tabling
+
+
+Chapter 7
+---------
+<common theme/title/intro???>
+
+Techniques:
+  Expression-level Bottom Avoidance
+Applications:
+  ???
+Implementations:
+  Ferns-based miniKanren
+
+
+Chapter 8
+---------
+Related Work
+
+
+Chapter 9
+---------
+Future Work
+
+
+Chapter 10
+---------
+Conclusion
+
+
+Appendices
+----------
+
+Appendix A:  Familiar Helpers
+
+Appendix B:  pmatch
+
+Appendix C:  Ferns Implementation
+
+Bibliography
+
+
+What am I missing?  What about a relational inferencer?  Is that worth exploring, or is there too much overlap with relational type inference?
+
+Maybe I should try a single technique, application, and implementation per chapter.
+
+
+
+Have a goal for each day:  today I'm going to work on ______.
+
+Timeline
+--------
+  18 W   March   reorg/detailed outline
+19 Th
+20 F  <Brian's birthday>
+21 Sa
+22 Su
+23 M  [end of break--pick defense date/time; send out announcement]
+24 T
+25 W
+26 Th  <lab>
+27 F   <lab>
+28 Sa
+29 Su
+30 M
+31 T  [must submit defense announcement no more than 30 days out!]
+1  W   April
+2  Th  <lab>
+3  F   <lab>
+4  Sa
+5  Su
+6  M
+7  T   Complete draft due!
+
+As of March 19, 20 days left (16 non-lab days)
+
+
+
+create detailed timeline for April 7 deadline
+
+reorganize diss., so that each core chapter contains techniques, aplications, and implementations; this may require some serious thinking 
+[consider using an organization at least partly inspired by my proposal slides]
+
+create detailed outline for unwritten chapters/sections, down to the topic sentence of each para, and including all code
+
+make sure conclusion, intro, thesis, etc., match updated versions in proposal and slides
+
+see if I can salvage wording from my written proposal, slides, or the first draft of my diss.
+
+write chapter on Scheme-to-miniKanren translation, demonstrating non-overlapping principle
+
+opening quotes for each chapter
+
+Make sure I include: 
+"A novel technique for eliminating uses of copy term/2, using nominal logic and tagging."
+
+Add pure binary arithmetic paper to bibliography.
+
+make sure I'm using the latest version of all software (remember that Dan wants me to use a_0 and a_1 instead of a_0 and b_0 for reified noms--must change slides)
+
+should probably create a system to run all tests when typesetting diss.
+
+update arithmetic chapter to use miniKanren instead of Prolog
+
+see if I can find an application requiring ferns
+
+find nice example application requiring tabling; perhaps reducer
+
+clean up and write up tabling, PLT-style-reducer, complete type inferencer, and interpreter
+
+update resume with ferns paper, once submitted to Mitch's fesc.
+
+update/improve slides

@@ -1,0 +1,548 @@
+\chapter{Implementation III:  Disequality Constraints}\label{diseqimplchapter}
+
+In this chapter we implement the \mbox{\scheme|=/=|} disequality
+constraint operator described in Chapter~\ref{diseqchapter}.  We
+implement disequality constraints using unification, which results in
+remarkably concise and elegant code.  The mathematics of this approach
+were described by \citeauthor{Comon91disunification:a} in the
+1980's\footnote{See \citet{Comon91disunification:a} and
+\citet{ComonEquational1989}.}---to our knowledge, our implementation
+is the first to use this technique, for which triangular
+substitutions (section~\ref{mkunif}) are a perfect match.  We also
+present a sophisticated reifier that removes irrelevant and redundant
+constraints.
+
+This chapter is organized as follows.  In section~\ref{diseqrep} we
+describe our representation of the constraint store, which is passed
+to every goal as part of a \emph{package} that also contains the
+substitution.  Section~\ref{solvediseq} presents the constraint
+solving algorithm, which is based on unification, while
+section~\ref{neverequaloimplsection} defines the \scheme|=/=| and
+\scheme|==| operators and related helpers.  Finally in
+section~\ref{diseqreify} we present a sophisticated reifier that
+produces human-friendly representations of constraints.
+
+\section{Constraints, Constraint Lists, and Packages}\label{diseqrep}
+
+We represent a constraint \scheme|c| as a list of pairs associating variables with terms.
+For example, the constraint \mbox{\scheme|(=/= 5 x)|} would be represented as
+\mbox{\scheme|`((,x . 5))|}, while the constraint \mbox{\scheme|(=/= `(5 6) `(,y ,z))|}
+would be represented as \mbox{\scheme|`((,y . 5) (,z . 6))|}.  In fact, our representation
+of disequality constraints is identical to our representation of substitutions---indeed, a
+constraint can be viewed as a mini-substitution that indicates which simultaneous variable
+associations would violate the constraint.
+
+% Point out that a
+% constraint looks exactly like a substitution, and possesses the same
+% properties (for example, each variable appears on the lhs at most
+% once).
+
+% [constraint store \scheme|c*| is a list of constraints (a list of substitutions)]
+
+A program can introduce many constraints, which requires that we
+introduce the notion of a \emph{constraint store} that will be passed to
+every goal, along with the substitution.  We represent our constraint
+store \scheme|c*| as a list of constraints (that is, a list of
+substitutions).  For example, after running the goal
+
+\wspace
+
+\noindent
+\mbox{\scheme|(exist (x y z) (=/= 5 x) (=/= `(5 6) `(,y ,z)))|}
+
+\wspace
+
+\noindent
+the constraint store would be \mbox{\scheme|`(((,y . 5) (,z . 6)) ((,x . 5)))|}.
+
+We define \scheme|empty-c*| to be the empty list: \mbox{\scheme|(define empty-c* '())|}.
+ We extend \scheme|c*| using \scheme|cons|.
+
+We must pass the constraint store to every goal.  We could add an
+extra \scheme|c*| argument to each goal, but instead we pass around
+the substitution and constraint store as a single value, which we call
+a \emph{package}.  Most goal constructors just pass around the
+substitution---their definitions need not change.  We only need to
+modify goal constructors that extend or inspect the substitution (such
+as \scheme|==|).
+(We will use the package abstraction whenever we need to pass around
+constraint information, such as the freshness constraints of nominal
+logic in Chapter~\ref{akimplchapter}.)
+
+Here are our package constructors and deconstructors\footnote{The
+\scheme|s-of| deconstructor, which returns a package's substitution,
+is all we need to update our definition of the impure operator
+\scheme|project|.
+\begin{schemedisplay}
+(define-syntax project 
+  (syntax-rules ()                                                              
+    ((_ (x ...) g g* ...)
+     (lambdag@ (a)
+       (let ((s (s-of a)))
+         (let ((x (walk* x s)) ...)
+           ((exist () g g* ...) a)))))))
+\end{schemedisplay}}.
+
+\wspace
+
+\begin{schemedisplay}
+(define make-a (lambda (s c*) (cons s c*)))
+(define s-of (lambda (a) (car a)))
+(define c*-of (lambda (a) (cdr a)))
+(define empty-a (make-a empty-s empty-c*))
+\end{schemedisplay}
+
+
+
+
+
+
+\section{Solving Disequality Constraints}\label{solvediseq}
+
+In this section we will use unification in a clever way to solve
+disequality constraints after a call to \scheme|=/=| or \scheme|==|,
+and to keep these constraints in simplified form.  First, observe that
+unifying terms \scheme|t1| and \scheme|t2| in a substitution
+\scheme|s| has three possible outcomes:
+
+\begin{enumerate}
+\item unification can fail, indicating there is no extension to
+  \scheme|s| that will make \scheme|t1| and \scheme|t2| equal;
+\item unification can succeed {\em without} extending
+  \scheme|s|---this implies that \scheme|t1| and \scheme|t2| are
+  already equal;
+\item unification can succeed, returning an extended substitution
+  containing new associations---in this case, the
+  ``mini-substitution'' \scheme|s^| containing only these new
+  associations represents the most general substitution that makes
+  \scheme|t1| and \scheme|t2| equal\footnote{The technical term for
+    this substitution is the \scheme{most general unifier} or
+    \emph{mgu}.}.
+\end{enumerate}
+
+Now let us consider disequality constraints: instead of determining if
+\scheme|t1| and \scheme|t2| can be made equal, we wish to determine if
+\scheme|t1| and \scheme|t2| can be made \emph{disequal} with respect
+to \scheme|s|.  Fortunately, this requires only a slight change in
+perspective.  We unify \scheme|t1| and \scheme|t2| with respect to
+\scheme|s|, but we interpret result of the unification differently:
+
+\begin{enumerate}
+\item if unification fails, \scheme|t1| and \scheme|t2| can never be
+  made equal, and the disequality constraint can never be
+  violated---therefore, we can throw the constraint away;
+\item if unification succeeds {\em without} extending \scheme|s|, then
+  \scheme|t1| and \scheme|t2| are already equal---the disequality
+  constraint has been violated;
+\item if unification succeeds and returns an extended substitution
+  containing new associations, then the constraint has not been
+  violated, but could still be violated through future calls to
+  \scheme|==|---in this case, the ``mini-substitution'' \scheme|s^|
+  that contains the new associations represents the updated
+  disequality constraint in simplified form.
+\end{enumerate}
+
+A few examples should clarify how unification can be used to solve
+disequality constraints.  
+
+\begin{enumerate}
+\item Running the goal \mbox{\scheme|(=/= 5 6)|} corresponds to the
+  first case above: \scheme|5| and \scheme|6| fail to unify in any
+  substitution, which means the constraint can never be violated.
+  Therefore \mbox{\scheme|(=/= 5 6)|} succeeds, without extending the
+  constraint store.
+
+\item The goal \mbox{\scheme|(=/= 5 5)|} corresponds to the second
+  case above: \scheme|5| unifies with itself, without extending the
+  current substitution, which means the disequality constraint has
+  been violated.  Therefore \mbox{\scheme|(=/= 5 5)|} fails.
+
+\item The goal \mbox{\scheme|(=/= `(5 6) `(,x ,y))|} corresponds to
+  the third case above: \mbox{\scheme|`(5 6)|} and \mbox{\scheme|`(,x ,y)|} 
+  unify in the empty substitution (let's say), resulting in a
+  substitution extended with the associations \mbox{\scheme|`(,x . 5)|} 
+  and \mbox{\scheme|`(,y . 6)|}.  This means the
+  constraint was not violated, but could be violated in the future (if 
+  \scheme|x| is unified with \scheme|5| and \scheme|y| with \scheme|6|).
+  Therefore \mbox{\scheme|(=/= `(5 6) `(,x ,y))|} succeeds, extending the 
+  constraint store with the simplified constraint \mbox{\scheme|`((,x . 5) (,y . 6))|}.
+\end{enumerate}
+
+
+Let us consider a final, more complicated example that uses both
+\scheme|=/=| and \scheme|==|.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(exist (p x y)
+  (=/= `(5 6) p)
+  (== `(,x ,y) p)
+  (== 5 x)
+  (== 7 y))
+\end{schemedisplay}
+
+\noindent Let us assume that we run this goal in the empty package, containing
+the empty substitution \mbox{\scheme|s = `()|} and the empty constraint
+store \mbox{\scheme|c* = `()|}.  First we run the goal \mbox{\scheme|(=/= `(5 6) p)|};
+\mbox{\scheme|p|} unifies with
+\mbox{\scheme|`(5 6)|} in the empty substitution, extending the substitution with the association
+\mbox{\scheme|`((,p . (5 6)))|}.  Therefore \mbox{\scheme|(=/= `(5 6) p)|} succeeds, returning a
+package with \mbox{\scheme|s = ()|} and \mbox{\scheme|c* =  `(((,p . (5 6))))|}.
+
+Next we run \mbox{\scheme|(== `(,x ,y) p)|};
+\mbox{\scheme|p|} unifies with \mbox{\scheme|`(,x ,y)|} in the empty substitution,
+returning the extended substitution
+\mbox{\scheme|s = `((,p . (,x ,y)))|}.  But after the successful unification we must verify
+all of the constraints in the constraint store.  We have only the single constraint
+\mbox{\scheme|`((,p . (5 6)))|}, which we verify by unifying \mbox{\scheme|p|} and
+\mbox{\scheme|`(5 6)|} in the new substitution
+\mbox{\scheme|`((,p . (,x ,y)))|}.  This unification succeeds, extending the substitution with the
+associations \mbox{\scheme|`(,x . 5)|} and \mbox{\scheme|`(,y . 6)|}.  Therefore
+\mbox{\scheme|(== `(,x ,y) p)|} succeeds, returning
+a new package with \mbox{\scheme|s = `((,p . (,x ,y)))|} and
+\mbox{\scheme|c* = `(((,x . 5) (,y . 6)))|}.
+
+Next we run \mbox{\scheme|(== 5 x)|}; \mbox{\scheme|x|} unifies with \mbox{\scheme|5|}
+in the substitution \mbox{\scheme|`((,p . (,x ,y)))|},
+returning the extended substitution \mbox{\scheme|s = `((,x . 5) (,p . (,x ,y)))|}.
+Since the unification
+was successful, we must verify our constraints.
+We still have only a single constraint, \mbox{\scheme|`((,x . 5) (,y . 6))|}, which we verify by
+simultaneously unifying \mbox{\scheme|x|} with \mbox{\scheme|5|} and
+\mbox{\scheme|y|} with \mbox{\scheme|6|} in the new substitution
+\mbox{\scheme|s = `((,x . 5) (,p . (,x ,y)))|}. This unification succeeds, extending
+\mbox{\scheme|s|} with the association
+\mbox{\scheme|`(,y . 6)|}.  Therefore \mbox{\scheme|(== 5 x)|} succeeds,
+returning a new package with
+\mbox{\scheme|s = `((,x . 5) (,p . (,x ,y)))|} and \mbox{\scheme|c* = `(((,y . 6)))|}.
+
+Finally we run \mbox{\scheme|(== 7 y)|}; \mbox{\scheme|y|} unifies with \mbox{\scheme|7|}
+in the substitution \mbox{\scheme|`((,x . 5) (,p . (,x ,y)))|},
+returning the extended substitution \mbox{\scheme|s = `((,y . 7) (,x . 5) (,p . (,x ,y)))|}.
+We then check the constraint \mbox{\scheme|`((,y . 6))|} by unifying \mbox{\scheme|y|} and
+\mbox{\scheme|6|} in the new substitution; this unification fails,
+indicating that the constraint can never be violated, and can therefore be discarded.
+The goal \mbox{\scheme|(== 7 y)|} succeeds, as does the entire \mbox{\scheme|exist|},
+returning the package
+\mbox{\scheme|s = `((,y . 7) (,x . 5) (,p . (,x ,y)))|} and \mbox{\scheme|c* = ()|}.
+
+Had we replaced the final goal \mbox{\scheme|(== 7 y)|}
+with \mbox{\scheme|(== 6 y)|}, \mbox{\scheme|y|} and \mbox{\scheme|6|}
+would have succeeded without extending the substitution; the constraint
+would therefore have been violated, and the entire \scheme|exist| would fail.
+
+
+\section{Implementing $\neq$ and $\equiv$}\label{neverequaloimplsection}
+
+Now that we understand how to solve disequality constraints using
+unification, we are ready to define \scheme|=/=|.
+\scheme|=/=| just unifies its arguments in the current
+substitution, then passes the result of the unification, along with
+original package, to \scheme|=/=-verify|.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define-syntax =/=
+  (syntax-rules ()
+    ((_ u v)
+     (lambdag@ (a)
+       (=/=-verify (unify u v (s-of a)) a)))))
+\end{schemedisplay}
+
+\scheme|=/=-verify| performs a case analysis on the result of the
+unification, \scheme|s^|, as described in section~\ref{solvediseq}.
+If unification failed, the constraint cannot be violated; therefore
+\scheme|=/=| succeeds, and just returns the package passed to it.
+Since we are using triangular substitutions, we can use a single
+\scheme|eq?| test to determine if unification succeeded without
+extending the substitution (the second \scheme|cond| clause); if so,
+the constraint has been violated, and \scheme|=/=| returns \scheme|(mzero)|
+to indicate failure.  Otherwise, unification returned an extended
+substitution.  We therefore call the \scheme|prefix-s| helper (below),
+which returns a mini-substitution \scheme|c| containing only the new
+associations added during unification.  We then construct a new
+package containing both the extended substitution \scheme|s^| and the
+simplified constraint \scheme|c|.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define =/=-verify
+  (lambda (s^ a)
+    (cond
+      ((not s^) (unit a))
+      ((eq? (s-of a) s^) (mzero))
+      (else (let ((c (prefix-s s^ (s-of a))))
+              (unit (make-a (s-of a) (cons c (c*-of a)))))))))
+\end{schemedisplay}
+
+Here is \scheme|prefix-s|, which returns the new associations in
+\scheme|s| that do not occur in the older substitution \scheme|<s|.
+Our use of triangular substitutions makes it trivial to define
+\scheme|prefix-s|, since the new substitutions always form a prefix of
+\scheme|s|.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define prefix-s
+  (lambda (s <s)
+    (cond
+      ((eq? s <s) empty-s)
+      (else (cons (car s) (prefix-s (cdr s) <s))))))
+\end{schemedisplay}
+
+We can now define \scheme|==|, which must check every constraint in
+the constraint store after a successful unification.  Constraint
+checking also ensures the constraints are kept in simplified form,
+making future constraint checking more efficient.  This simplified
+form also simplifies reification\footnote{We keep each individual
+  constraint in simplified form.  However, the constraint store itself
+  is not simplified, and may contain redundant constraints.
+  Determining if a constraint subsumes another is expensive, so we
+  only remove redundant constraints at reification time.}.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define-syntax ==
+  (syntax-rules ()
+    ((_ u v)
+     (lambdag@ (a)
+       (==-verify (unify u v (s-of a)) a)))))
+\end{schemedisplay}
+
+\scheme|==-verify| is similar to, but slightly more complicated than
+\scheme|=/=-verify|, since upon successful unification we need to
+verify all the constraints in \scheme|c*|.
+
+\newpage
+
+%\schemedisplayspace
+\begin{schemedisplay}
+(define ==-verify
+  (lambda (s^ a)
+    (cond
+      ((not s^) (mzero))
+      ((eq? (s-of a) s^) (unit a))
+      ((verify-c* (c*-of a) empty-c* s^)
+       => (lambda (c*) (unit (make-a s^ c*))))
+      (else (mzero)))))
+\end{schemedisplay}
+
+\scheme|verify-c*| verifies all the constraints in \scheme|c*| with
+respect to the current substitution \scheme|s|, accumulating the
+verified (and simplified) constraints in \scheme|c*^|.
+\scheme|verify-c*| uses \scheme|unify*| (below) to simultaneously
+unify the left- and right-hand-sides of all the associations within a
+given constraint.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define verify-c*
+  (lambda (c* c*^ s)
+    (cond
+      ((null? c*) c*^)
+      ((unify* (car c*) s)
+       => (lambda (s^)
+            (cond
+              ((eq? s s^) #f)
+              (else (let ((c (prefix-s s^ s)))
+                      (verify-c* (cdr c*) (cons c c*^) s))))))
+      (else (verify-c* (cdr c*) c*^ s)))))
+
+(define unify*
+  (lambda (p* s)
+    (cond
+      ((null? p*) s)
+      ((unify (lhs (car p*)) (rhs (car p*)) s)
+       => (lambda (s) (unify* (cdr p*) s)))
+      (else #f))))
+\end{schemedisplay}
+
+\enlargethispage{1em}
+
+For completeness, here is \scheme|==-no-check|\footnote{We can also
+define \scheme|=/=-no-check|, which performs \emph{unsound disunification},
+allowing circular constraints such as \mbox{\scheme|`((,x . (,x)))|}.
+\begin{schemedisplay}
+(define-syntax =/=-no-check
+  (syntax-rules ()
+    ((_ u v)
+     (lambdag@ (a)
+       (=/=-verify (unify-no-check u v (s-of a)) a)))))
+\end{schemedisplay}
+Reifying a circular constraint introduced by \scheme|=/=-no-check| can result in divergence.}.
+\schemedisplayspace
+\begin{schemedisplay}
+(define-syntax ==-no-check
+  (syntax-rules ()
+    ((_ u v)
+     (lambdag@ (a)
+       (==-verify (unify-no-check u v (s-of a)) a)))))
+\end{schemedisplay}
+
+
+\section{Reification}\label{diseqreify}
+
+We want our reified constraints to be as concise and readable as possible;
+we therefore eliminate \emph{irrelevant}
+constraints, which contain one or more variables
+that are not themselves reified (see section~\ref{diseqsection}).  We
+also remove redundant constraints that are subsumed by other reified
+constraints.  Our subsumption check uses unification and is
+potentially expensive, so we perform this check only during
+reification.
+
+A relevant constraint contains no unreified variables.
+\scheme|purify| takes the constraint store \scheme|c*| and the reified
+name substitution \scheme|r| (section~\ref{mkreification}), and
+returns a constraint store containing only relevant constraints.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define purify
+  (lambda (c* r)
+    (cond
+      ((null? c*) empty-c*)
+      ((anyvar? (car c*) r)
+       (purify (cdr c*) r))
+      (else (cons (car c*)
+              (purify (cdr c*) r))))))
+\end{schemedisplay}
+
+\scheme|purify| calls \scheme|anyvar?| on each constraint, which
+returns \scheme|#t| if the constraint contains a variable that is
+unassociated in the reified name substitution.
+(The constraint store is \scheme|walk*|ed in the package's normal
+substitution before purification, so that variables associated with
+ground terms do not affect purification.)
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define anyvar?
+  (lambda (v r)
+    (cond
+      ((var? v) (var? (walk v r)))
+      ((pair? v) (or (anyvar? (car v) r) (anyvar? (cdr v) r)))
+      (else #f))))
+\end{schemedisplay}
+
+In addition to removing irrelevant constraints, we also want to remove
+any constraint that is subsumed by another reified constraint.  For example,
+after running the goal \mbox{\scheme|(exist (x y) (=/= `(5 6) `(,x ,y)) (=/= 5 x))|}
+the constraint store will be \mbox{\scheme|`(((,x . 5)) ((,x . 5) (,y . 6)))|}.
+Although the individual constraints are simplified, the constraint \mbox{\scheme|`((,x . 5))|}
+subsumes the constraint \mbox{\scheme|`((,x . 5) (,y . 6))|}
+(since it is not possible to violate the latter constraint without
+also violating the former).
+
+We can determine if a constraint \scheme|c| is subsumed by another
+constraint \scheme|c^| through yet another clever use of unification.
+We use \scheme|unify*| to perform simultaneous unification of the left-
+and right-hand-sides of all the associations in \scheme|c^|, with
+respect to the ``substitution'' \scheme|c| (see section~\ref{neverequaloimplsection}); 
+if \scheme|unify*|
+succeeds without extending the substitution, then \scheme|c| is
+subsumed by \scheme|c^|.  For example, to determine if the constraint
+\mbox{\scheme|c = `((,x . 5) (,y . 6))|} is subsumed by
+\mbox{\scheme|c^ = `((,x . 5))|}, we unify \scheme|x| and \scheme|5|
+in the substitution \mbox{\scheme|`((,x . 5) (,y . 6))|}.  This
+unification succeeds without extending \scheme|c|: therefore,
+\mbox{\scheme|`((,x . 5) (,y . 6))|} is subsumed by
+\mbox{\scheme|`((,x . 5))|}, and can be discarded.
+
+The \scheme|subsumed?| predicate returns \scheme|#t| if the constraint
+\scheme|c| is subsumed by any constraint in \scheme|c*|.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define subsumed?
+  (lambda (c c*)
+    (and (not (null? c*))
+         (or (eq? (unify* (car c*) c) c)
+             (subsumed? c (cdr c*))))))
+\end{schemedisplay}
+
+\scheme|rem-subsumed| takes a list of \emph{unseen} constraints
+\scheme|c*| and previously seen constraints \scheme|c*^| (initially
+empty), and returns a new constraint store containing independent
+constraints, none of which are subsumed by any other.  As
+\scheme|rem-subsumed| cdrs down \scheme|c*|, it checks if the car of \scheme|c*| is
+subsumed by any of the other constraints, either in the rest of the
+unseen constraints in \scheme|c*|, or the already seen constraints accumulated
+in \scheme|c*^|.  If so, the car of \scheme|c*| is thrown away;
+otherwise, it is added to the list of already seen constraints.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define rem-subsumed
+  (lambda (c* c*^)
+    (cond
+      ((null? c*) c*^)
+      ((or (subsumed? (car c*) c*^) (subsumed? (car c*) (cdr c*)))
+       (rem-subsumed (cdr c*) c*^))
+      (else (rem-subsumed (cdr c*) (cons (car c*) c*^))))))
+\end{schemedisplay}
+
+Here is the updated definition of \scheme|reify|, which
+\scheme|walk*|s the constraint store in the package's substitution
+before calling \scheme|purify| and \scheme|rem-subsumed|.
+\scheme|reify| returns only the reified value if there are no relevant
+constraints; otherwise, \scheme|reify| returns a list containing the
+reified value, followed by a tagged list of relevant, and independent,
+reified constraints.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define reify
+  (lambda (v a)
+    (let ((s (s-of a)))
+      (let ((v (walk* v s))
+            (c* (walk* (c*-of a) s)))
+        (let ((r (reify-s v empty-s)))
+          (let ((v (walk* v r))
+                (c* (walk* (rem-subsumed (purify c* r) empty-c*) r)))
+            (cond
+              ((null? c*) v)
+              (else `(,v : (never-equal . ,c*))))))))))
+\end{schemedisplay}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+%[unification based-implementation, showing advantage of triangular substitutions]
+
+%[need to reference H. Comon paper]
+
+%[I discovered algorithm independently, in the context of term equality
+%for our initial, clumsier implementation of disequality constraints]
+
+%[explain algorithm using case analysis and examples]
+
+
+%[code taken from /iu/c311/2008\_II/infer/mkneverequalo.scm]
+
+%[relies on standard definitions of conde, etc.]
+
+%[reification]
+
+%[only reify "relevant" constraints]
+

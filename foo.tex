@@ -1,0 +1,28 @@
+\begin{schemedisplay}
+(define engine-tag-L-car (engine-tag-compare car 'L))
+(define engine-tag-U-car (engine-tag-compare car 'U))
+(define engine-tag-L-cdr (engine-tag-compare cdr 'L))
+(define engine-tag-U-cdr (engine-tag-compare cdr 'U))
+
+(define apply-pi
+  (lambda (pi v)
+    (pmatch v
+      (`#f (guard (not (pair? c))) c)
+      (`,c (guard (not (pair? c))) c)
+      (`(tie-tag ,a ,t) (tie (apply-pi pi a) (apply-pi pi t)))      
+      (`(nom-tag __)
+       (let loop ((v v) (pi pi))
+         (if (null? pi) v (apply-swap (car pi) (loop v (cdr pi))))))
+      (`(susp-tag ,pi^ ,x)
+       (let ((pi (append pi pi^)))
+         (if (null? pi) (x) `(susp-tag ,pi ,x))))
+      (`(,a . ,d) (cons (apply-pi pi a) (apply-pi pi d))))))
+
+(define nom
+  (lambda (a)
+    (list 'nom-tag (symbol->string a))))
+
+(define nom
+  (lambda (a)
+    (list nom-tag (symbol->string a))))
+\end{schemedisplay}

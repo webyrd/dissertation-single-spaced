@@ -1,0 +1,996 @@
+\chapter{Applications I:  Pure Binary Arithmetic}\label{arithchapter}
+
+This chapter presents relations for arithmetic over the non-negative
+integers: addition, subtraction, multiplication, division,
+exponentiation, and logarithm.  Importantly, these relations are
+refutationally complete---if an individual arithmetic relation is
+called with arguments that do not satisfy the relation, the relation
+will fail in finite time rather than diverge. The conjunction of two
+or more arithmetic relations may not fail finitely, however. This is
+because the conjunction of arithmetic relations can express
+Diophantine equations; were such conjunctions guaranteed to terminate,
+we would be able to solve Hilbert's 10$^{th}$ problem, which is
+undecidable~\cite{hilbertstenth}.  We also do not guarantee
+termination if the goal's arguments share variables, since sharing can
+express the conjunction of sharing-free relations.
+
+\citet{conf/flops/KiselyovBFS08} gives proofs of refutational
+completeness for these relations.  \citet{trs} and
+\citet{conf/flops/KiselyovBFS08} give additional examples and
+exposition of these arithmetic relations\footnote{The definition of
+  \scheme|logo| in the first printing of \citet{trs} contains an
+  error, which has been corrected in the second printing and in
+  section~\ref{arithexplog}.}.
+
+This chapter is organized as follows.  Section~\ref{arithrep}
+describes our representation of numbers.  In section~\ref{arithnaive}
+we present a naive implementation of addition and show its
+limitations.  Section~\ref{arithrevisited} presents a more
+sophisticated implementation of addition, inspired by the half-adders
+and full-adders of digital hardware.  Sections~\ref{arithmult} and
+\ref{arithdivision} present the multiplication and division relations,
+respectively.  Finally in section~\ref{arithexplog} we define
+relations for logarithm and exponentiation.
+
+
+\section{Representation of Numbers}\label{arithrep}
+
+Before we can write our arithmetic relations, we must decide how we
+will represent numbers.  For simplicity, we restrict the domain of our
+arithmetic relations to non-negative integers\footnote{We could extend
+  our treatment to negative integers by adding a sign tag to each
+  number.}.  We might be tempted to use Scheme's built-in numbers for
+our arithmetic relations.  Unfortunately, unification cannot decompose
+Scheme numbers.  Instead, we need an inductively defined
+representation of numbers that can be constructed and deconstructed
+using unification.  We will therefore represent numbers as lists.
+
+The simplest approach would be to use a unary
+representation\footnote{Even when using unary numbers, defining
+  refutationally complete arithmetic relations is non-trivial, as
+  demonstrated by~\citet{conf/flops/KiselyovBFS08}.}; however, for
+efficiency we will represent numbers as lists of binary digits.  Our
+lists of binary digits are \emph{little-endian}: the \scheme|car| of
+the list contains the least-significant-bit, which is convenient when
+performing arithmetic.  We can define the \scheme|build-num| helper
+function, which constructs binary little-endian lists from Scheme
+numbers.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define build-num
+  (lambda (n)
+    (cond
+      ((zero? n) '())
+      ((and (not (zero? n)) (even? n))
+       (cons 0 (build-num (quotient n 2))))
+      ((odd? n)
+       (cons 1 (build-num (quotient (- n 1) 2)))))))
+\end{schemedisplay}
+
+\noindent For example \mbox{\scheme|(build-num 6)|} returns
+\mbox{\scheme|`(0 1 1)|}, while \mbox{\scheme|(build-num 19)|} returns
+\mbox{\scheme|`(1 1 0 0 1)|}.
+
+To ensure there is a unique representation of every number, we suppress
+trailing $0$'s. Thus \mbox{\scheme|`(0 1)|} is the unique
+representation of the number two; both \mbox{\scheme|`(0 1 0)|} and
+\mbox{\scheme|`(0 1 0 0)|} are illegal.  Similarly, \scheme|'()| is
+the unique representation of zero; \mbox{\scheme|`(0)|} is illegal.
+Lists representing numbers may be partially instantiated:
+\mbox{\scheme|`(1 . ,x)|} represents any odd integer, while
+\mbox{\scheme|`(0 . ,y)|} represents any \emph{positive} even number.
+We must ensure that our relations never instantiate variables
+representing numbers to illegal values---in these examples, \scheme|x|
+can be instantiated to any legal number, while \scheme|y| can be
+instantiated to any number \emph{other} than zero to avoid creating
+the illegal value \mbox{\scheme|`(0)|}.
+
+We can now define the simplest useful arithmetic relations,
+\scheme|poso| and \scheme|>1o|.  The \scheme|poso| relation is
+satisfied if its argument represents a positive
+integer.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define poso
+  (lambda-e (n)
+    (`((,a . ,d)))))
+\end{schemedisplay}
+
+\noindent The \scheme|>1o| relation is satisfied if its argument
+represents an integer greater than one.
+
+\newpage
+
+%\schemedisplayspace
+\begin{schemedisplay}
+(define >1o
+  (lambda-e (n)
+    (`((,a ,b . ,d)))))
+\end{schemedisplay}
+
+\noindent We will use \scheme|poso| and \scheme|>1o| in more
+sophisticated arithmetic relations, starting with addition.
+
+\section{Naive Addition}\label{arithnaive}
+
+Now that we have decided on a representation for numbers, we can
+define the addition relation, \scheme|pluso|.  
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define pluso
+  (lambda-e (n m s)
+    (`(,x () ,x))
+    (`(() ,y ,y))
+    (`((0 . ,x) (,b . ,y) (,b . ,res))
+     (pluso x y res))    
+    (`((,b . ,x) (0 . ,y) (,b . ,res))
+     (pluso x y res))
+    (`((1 . ,x) (1 . ,y) (0 . ,res))
+     (exist (res-1)
+       (pluso x y res-1)
+       (pluso '(1) res-1 res)))))
+\end{schemedisplay}
+
+\noindent The first two clauses handle when \scheme|n| or \scheme|m|
+is zero.  The next two clauses handle when both \scheme|n| and
+\scheme|m| are positive integers, at least one of which is even.  The
+final clause handles when \scheme|n| and \scheme|m| are both positive
+odd integers.
+
+At first glance, our definition of \scheme|pluso| seems to work fine.
+
+\wspace
+
+\noindent\scheme|(run1 (q) (pluso '(1 1) '(0 1 1) q))| $\Rightarrow$ \scheme|`((1 0 0 1))|
+
+\wspace
+
+\noindent As expected, adding three and six yields nine.  However,
+replacing \scheme|run1| with \scheme|run*| results in the answer
+\mbox{\scheme|((1 0 0 1) (1 0 0 1))|}.  The duplicate value is due to
+the overlapping of clauses in \scheme|pluso|---for example, both of
+the first two clauses succeed when \scheme|n|, \scheme|m|, and
+\scheme|s| are all zero.  Even worse, \mbox{\scheme|(run* (q) (pluso '(0 1) q '(1 0 1)))|}
+ returns \mbox{\scheme|`((1 1) (1 1) (1 1 0) (1 1 0))|}. The
+last two values are not even legal representations of a number, since
+the most-significant bit is zero.
+
+We can fix these problems by making the clauses of \scheme|pluso|
+non-overlapping, and by adding calls to \scheme|poso| to ensure the
+most-significant bit of a positive number is never instantiated to
+zero.
+
+\newpage
+
+%\schemedisplayspace
+\begin{schemedisplay}
+(define pluso
+  (lambda-e (n m k)
+    (`(,x () ,x))
+    (`(() (,x . ,y) (,x . ,y)))
+    (`((0 . ,x) (0 . ,y) (0 . ,res)) (poso x) (poso y)
+     (pluso x y res))
+    (`((0 . ,x) (1 . ,y) (1 . ,res)) (poso x)
+     (pluso x y res))
+    (`((1 . ,x) (0 . ,y) (1 . ,res)) (poso y)
+     (pluso x y res))
+    (`((1 . ,x) (1 . ,y) (0 . ,res))
+     (exist (res-1)
+       (pluso x y res-1)
+       (pluso '(1) res-1 res)))))
+\end{schemedisplay}
+
+\enlargethispage{1em}
+
+\noindent We separated the third clause of the original \scheme|pluso|
+into two clauses, so we can use \scheme|poso| to avoid illegal
+instantiations of numbers.
+
+The improved definition of \scheme|pluso| no longer produces duplicate
+or illegal values.
+
+\wspace
+
+\noindent\scheme|(run* (q) (pluso '(1 1) '(0 1 1) q))| $\Rightarrow$ \scheme|`((1 0 0 1))|
+
+\noindent\scheme|(run* (q) (pluso '(0 1) q '(1 0 1)))| $\Rightarrow$ \scheme|`((1 1))|
+
+\wspace
+
+It may appear that our new \scheme|pluso| is refutationally complete,
+since attempting to add eight to some number \scheme|q| to produce six
+fails finitely:
+
+\wspace
+
+\noindent\scheme|(run* (q) (pluso '(0 0 0 1) q '(0 1 1)))| $\Rightarrow$ \scheme|'()|
+
+\wspace
+
+\noindent Unfortunately, this example is misleading---\scheme|pluso|
+is not refutationally complete.  The expression
+\mbox{\scheme|(run1 (q) (pluso q '(1 0 1) '(0 0 0 1)))|} 
+returns \mbox{\scheme|'((1 1))|} as expected, but replacing
+\scheme|run1| with \scheme|run2| results in divergence.  Similarly,
+
+\schemedisplayspace
+\begin{schemedisplay}
+(run6 (q)
+  (exist (x y)
+    (pluso x y '(1 0 1))
+    (== `(,x ,y) q)))
+\end{schemedisplay}
+
+\noindent returns
+
+\schemedisplayspace
+\begin{schemeresponse}
+(((1 0 1) ())
+ (() (1 0 1))
+ ((0 0 1) (1))
+ ((1) (0 0 1))
+ ((0 1) (1 1))
+ ((1 1) (0 1)))
+\end{schemeresponse}
+
+\noindent but \scheme|run7| diverges. If we were to swap the recursive
+calls in last clause of \scheme|pluso|, the previous expressions would
+converge when using \scheme|run*|; unfortunately, many previously
+convergent expressions would then diverge\footnote{These examples
+  demonstrate why an efficient implementation (or simulation) of
+  commutative conjunction would be useful.}.  If we want
+\scheme|pluso| to be refutationally complete, we must reconsider our
+approach.
+
+
+\section{Arithmetic Revisited}\label{arithrevisited}
+
+In this section we develop a refutationally complete definition of
+\scheme|pluso|, inspired by the half-adders and full-adders of digital
+logic\footnote{See \citet{hennessy-computer} for a description of
+  hardware adders.}.
+
+We first define \scheme|half-addero|, which, when given the binary
+digits \scheme|x|, \scheme|y|, \scheme|r|, and \scheme|c|, satisfies
+the equation $x + y = r + 2 \cdot c$.  
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define half-addero
+  (lambda (x y r c)
+    (exist ()
+      (bit-xoro x y r)
+      (bit-ando x y c))))
+\end{schemedisplay}
+
+\scheme|half-addero| is defined using bit-wise relations for logical
+{\tt and} and {\tt exclusive-or}.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define bit-ando
+  (lambda-e (x y r)
+    (`(0 0 0))
+    (`(1 0 0))
+    (`(0 1 0))
+    (`(1 1 1))))
+\end{schemedisplay}
+
+\begin{schemedisplay}
+(define bit-xoro
+  (lambda-e (x y r)
+    (`(0 0 0))
+    (`(0 1 1))
+    (`(1 0 1))
+    (`(1 1 0))))
+\end{schemedisplay}
+
+Now that we have defined \scheme|half-addero|, we can define
+\scheme|full-addero|.  \scheme|full-addero| is similar to
+\scheme|half-addero|, but takes a carry-in bit \scheme|b|; given bits
+\scheme|b|, \scheme|x|, \scheme|y|, \scheme|r|, and \scheme|c|,
+\scheme|full-addero| satisfies $b + x + y = r + 2 \cdot c$.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define full-addero
+  (lambda (b x y r c)
+    (exist (w xy wz)
+      (half-addero x y w xy)
+      (half-addero w b r wz)
+      (bit-xoro xy wz c))))
+\end{schemedisplay}
+
+\scheme|half-addero| and \scheme|full-addero| add individual bits.  We
+now define \scheme|addero| in terms of \scheme|full-addero|;
+\scheme|addero| adds a carry-in bit \scheme|d| to arbitrarily large
+numbers \scheme|n| and \scheme|m| to produce a number \scheme|r|.
+
+\newpage
+
+%\schemedisplayspace
+\begin{schemedisplay}
+(define addero
+  (lambda (d n m r)
+    (match-e `(,d ,n ,m)
+      (`(0 __ ()) (== n r))
+      (`(0 () __) (== m r) (poso m))
+      (`(1 __ ())
+       (addero 0 n '(1) r))
+      (`(1 () __)
+       (poso m)
+       (addero 0 '(1) m r))
+      (`(__ (1) (1))
+       (exist (a c)
+         (== `(,a ,c) r)
+         (full-addero d 1 1 a c)))
+      (`(__ (1) __)
+       (gen-addero d n m r))
+      (`(__ __ (1))
+       (>1o n) (>1o r)
+       (addero d '(1) n r))
+      (`(__ __ __) 
+       (>1o n) 
+       (gen-addero d n m r)))))
+\end{schemedisplay}
+
+The last clause of \scheme|addero| calls \scheme|gen-addero|; given
+the bit \scheme|d| and numbers \scheme|n|, \scheme|m|, and \scheme|r|,
+\scheme|gen-addero| satisfies $d + n + m = r$, provided that
+\scheme|m| and \scheme|r| are greater than one and \scheme|n| is
+positive.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define gen-addero
+  (lambda (d n m r)
+    (match-e `(,n ,m ,r)
+      (`((,a . ,x) (,b . ,y) (,c . ,z))
+       (exist (e)
+         (poso y) (poso z)
+         (full-addero d a b c e)
+         (addero e x y z))))))
+\end{schemedisplay}
+
+We are finally ready to redefine \scheme|pluso|.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define pluso (lambda (n m k) (addero 0 n m k)))
+\end{schemedisplay}
+
+\noindent As proved by~\citet{conf/flops/KiselyovBFS08}, this
+definition of \scheme|pluso| is refutationally complete.  Using the
+new \scheme|pluso| all the addition examples from the previous section
+terminate, even when using \scheme|run*|.  We can also generate
+triples of numbers, where the sum of the first two numbers equals the
+third.
+
+\newpage
+
+%\schemedisplayspace
+\begin{schemedisplay}
+(run9 (q)
+  (exist (x y r)
+    (pluso x y r)
+    (== `(,x ,y ,r) q))) $\Rightarrow$
+\end{schemedisplay}
+\nspace
+\begin{schemeresponse}
+((_.0 () _.0)
+ (() (_.0 . _.1) (_.0 . _.1))
+ ((1) (1) (0 1))
+ ((1) (0 _.0 . _.1) (1 _.0 . _.1))
+ ((1) (1 1) (0 0 1))
+ ((0 _.0 . _.1) (1) (1 _.0 . _.1))
+ ((1) (1 0 _.0 . _.1) (0 1 _.0 . _.1))
+ ((0 1) (0 1) (0 0 1))
+ ((1) (1 1 1) (0 0 0 1)))
+\end{schemeresponse}
+% \begin{schemeresponse}
+% ((_.0 () _.0)
+%  (() (_.0 . _.1) (_.0 . _.1))
+%  ((1) (1) (0 1))
+%  ((1) (0 _.0 . _.1) (1 _.0 . _.1))
+%  ((1) (1 1) (0 0 1))
+%  ((0 _.0 . _.1) (1) (1 _.0 . _.1))
+%  ((1) (1 0 _.0 . _.1) (0 1 _.0 . _.1))
+%  ((0 1) (0 1) (0 0 1))
+%  ((1) (1 1 1) (0 0 0 1))
+%  ((1 1) (1) (0 0 1))
+%  ((1) (1 1 0 _.0 . _.1) (0 0 1 _.0 . _.1))
+%  ((1 1) (0 1) (1 0 1))
+%  ((1) (1 1 1 1) (0 0 0 0 1))
+%  ((1 0 _.0 . _.1) (1) (0 1 _.0 . _.1))
+%  ((1) (1 1 1 0 _.0 . _.1) (0 0 0 1 _.0 . _.1)))
+% \end{schemeresponse}
+
+We can take advantage of the flexibility of the relational approach by
+defining subtraction in terms of addition.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define minuso (lambda (n m k) (pluso m k n)))
+\end{schemedisplay}
+
+\noindent \scheme|minuso| works as expected: 
+
+\wspace
+
+\noindent\scheme|(run* (q) (minuso '(0 0 0 1) '(1 0 1) q))| $\Rightarrow$ \scheme|`((1 1))|
+
+\wspace
+
+\noindent eight minus five is indeed three. \scheme|minuso| is also
+refutationally complete:
+
+\wspace
+
+\noindent\scheme|(run* (q) (minuso '(0 1 1) q '(0 0 0 1)))| $\Rightarrow$ \scheme|`()|
+
+\wspace
+
+\noindent there is no non-negative integer \scheme|q| that, when
+subtracted from six, produces eight.
+
+\section{Multiplication}\label{arithmult}
+\enlargethispage{2em}
+
+Next we define the multiplication relation \scheme|mulo|, which
+satisfies $n \cdot m = p$.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define mulo
+  (lambda (n m p)
+    (match-e `(,n ,m)
+      (`(() __) (== () p))
+      (`(__ ()) (== () p) (poso n))  
+      (`((1) __) (== m p) (poso m))   
+      (`(__ (1)) (== n p) (>1o n))
+      (`((0 . ,x) __)
+       (exist (z)
+         (== `(0 . ,z) p)
+         (poso x) (poso z) (>1o m)
+         (mulo x m z)))
+      (`((1 . ,x) (0 . ,y))
+       (poso x) (poso y)
+       (mulo m n p))
+      (`((1 . ,x) (1 . ,y))
+       (poso x) (poso y)
+       (odd-mulo x n m p)))))
+\end{schemedisplay}
+
+\noindent \scheme|mulo| is defined in terms of the helper relation
+\scheme|odd-mulo|.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define odd-mulo
+  (lambda (x n m p)
+    (exist (q)
+      (bound-mulo q p n m)
+      (mulo x m q)
+      (pluso `(0 . ,q) m p))))
+\end{schemedisplay}
+
+\noindent For detailed descriptions of \scheme|mulo| and
+\scheme|odd-mulo|, see~\cite{trs} and \cite{conf/flops/KiselyovBFS08}.
+From a refutational-completeness perspective, the definition of
+\scheme|bound-mulo| is most interesting.
+
+\scheme|bound-mulo| ensures that the product of \scheme|n| and
+\scheme|m| is no larger than \scheme|p| by enforcing that the
+length\footnote{More correctly, the length of the list representing
+  the number.}  of \scheme|n| plus the length of \scheme|m| is an
+upper bound for the length of \scheme|p|.  In the process of enforcing
+this bound, \scheme|bound-mulo| length-instantiates \scheme|q|---that
+is, \scheme|q| becomes a list of fixed length containing
+uninstantiated variables representing binary digits.  The length of
+\scheme|q|, written $\norm{q}$, satisfies $\norm{q} <
+\min(\norm{p},\penalty\binoppenalty \norm{n} + \norm{m} + 1)$.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define bound-mulo
+  (lambda (q p n m)
+    (match-e `(,q ,p)
+      (`(() (__ . __)))
+      (`((__ . ,x) (__ . ,y))
+       (exist (a z)
+         (conde
+           ((== '() n)
+            (== `(,a . ,z) m)
+            (bound-mulo x y z '()))
+           ((== `(,a . ,z) n)
+            (bound-mulo x y z m))))))))
+\end{schemedisplay}
+
+\scheme|mulo| works as expected:
+
+\wspace
+
+\noindent\scheme|(run* (p) (mulo '(1 0 1) '(1 1) p))| $\Rightarrow$ \scheme|`(1 1 1 1)|
+
+\wspace
+
+\noindent multiplying five by three yields fifteen. Thanks to the
+bounds on term sizes enforced by \scheme|bound-mulo|, \scheme|mulo| is
+refutationally complete:
+
+\wspace
+
+\noindent\scheme|(run* (q) (mulo '(0 1) q '(1 1)))| $\Rightarrow$ \scheme|`()|
+
+\wspace
+
+\noindent there exists no non-negative integer \scheme|q| that, when
+multiplied by two, yields three.
+
+As we expect of all our relations, \scheme|mulo| is flexible---it can
+even be used to factor numbers.  For example, this \scheme|run*|
+expression returns all the factors of twelve.
+
+\newpage
+
+%\schemedisplayspace
+\begin{schemedisplay}
+(run* (q) 
+  (exist (m)
+    (mulo q m '(0 0 1 1)))) $\Rightarrow$
+\end{schemedisplay}
+\nspace
+\begin{schemeresponse}
+((1) (0 0 1 1) (0 1) (0 0 1) (1 1) (0 1 1))
+\end{schemeresponse}
+
+% From FLOPS paper.
+%
+% We guarantee termination only for stand-alone base arithmetic goals but
+% not their conjunctions (see \S\ref{s:solution-set}). This
+% non-compositionality is expected, since conjunctions of arithmetic
+% goals can express Diophantine equations; were such conjunctions
+% guaranteed to terminate, we would be able to solve Hilbert's 10th
+% problem, which is undecidable~\cite{hilbertstenth}.  We also do not
+% guarantee termination if the goal's arguments share variables.  Such a
+% goal can be expressed by conjoining a sharing-free base goal and
+% equalities.
+
+% [TODO discuss Presberger Arithmetic versus Peano Arithmetic; Hilbert's
+% 10th problem; Diophantine equations; conjunction of arithmetic
+% relations, perhaps by sharing variables.
+
+% Should be able to lift wording for this.]
+
+\section{Division}\label{arithdivision}
+
+Next we define a relation that performs division with remainder.  We
+will need additional bounds on term sizes to define division (and
+logarithm in section~\ref{arithexplog}).
+
+The relation \scheme|=lo| ensures that the lists representing the numbers
+\scheme|n| and \scheme|m| are the same length.  As before, we must
+take care to avoid instantiating either number to an illegal value
+like \scheme|`(0)|.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define =lo
+  (lambda-e (n m)
+    (`(() ()))
+    (`((1) (1)))
+    (`((,a . ,x) (,b . ,y)) (poso x) (poso y)
+     (=lo x y))))
+\end{schemedisplay}
+
+\scheme|<lo| ensures that the length of the list representing \scheme|n| is
+less than that of \scheme|m|.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define <lo
+  (lambda-e (n m)
+    (`(() __) (poso m))
+    (`((1) __) (>1o m))
+    (`((,a . ,x) (,b . ,y)) (poso x) (poso y)
+     (<lo x y))))
+\end{schemedisplay}
+
+We can now define \scheme|<=lo| by combining \scheme|=lo| and \scheme|<lo|.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define <=lo
+  (lambda (n m)
+    (conde
+      ((=lo n m))
+      ((<lo n m)))))
+\end{schemedisplay}
+
+Using \scheme|<lo| and \scheme|=lo| we can define \scheme|<o|, which
+ensures that the value of \scheme|n| is less than that of \scheme|m|.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define <o
+  (lambda (n m)
+    (conde
+      ((<lo n m))
+      ((=lo n m)
+       (exist (x)
+         (poso x)
+         (pluso n x m))))))
+\end{schemedisplay}
+
+Combining \scheme|<o| and \scheme|==| leads to the definition of
+\scheme|<=o|.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define <=o
+  (lambda (n m)
+    (conde
+      ((== n m))
+      ((<o n m)))))
+\end{schemedisplay}
+
+With the bounds relations in place, we can define division with
+remainder.  The \scheme|divo| relation takes numbers \scheme|n|,
+\scheme|m|, \scheme|q|, and \scheme|r|, and satisfies $n = m \cdot q +
+r$, with $0 \leq r < m$; this is equivalent to the equation $\frac{n}{m} = q$
+with remainder $r$, with $0 \leq r < m$.
+A simple definition of \scheme|divo| is 
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define divo
+  (lambda (n m q r)
+    (exist (mq)
+      (<o r m)
+      (<=lo mq n)
+      (mulo m q mq)
+      (pluso mq r n))))
+\end{schemedisplay}
+
+\noindent Unfortunately, 
+\mbox{\scheme|(run* (m) (exist (r) (divo '(1 0 1) m '(1 1 1) r)))|}
+diverges. Because we want refutational completeness,
+we instead use the more sophisticated definition
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define divo
+  (lambda (n m q r)
+    (match-e q 
+      (`() (== r n) (<o n m))
+      (`(1) (=lo n m) (pluso r m n) (<o r m))
+      (__ (<lo m n) (<o r m) (poso q)
+       (exist (nh nl qh ql qlm qlmr rr rh)
+         (splito n r nl nh)
+         (splito q r ql qh)
+         (conde
+           ((== '() nh)
+            (== '() qh)
+            (minuso nl r qlm)
+            (mulo ql m qlm))
+           ((poso nh)
+            (mulo ql m qlm)
+            (pluso qlm r qlmr)
+            (minuso qlmr nl rr)
+            (splito rr r '() rh)
+            (divo nh m qh rh))))))))
+\end{schemedisplay}
+
+\noindent The refutational completeness of \scheme|divo| is largely due to the
+use of \scheme|<o|, \scheme|<lo|, and \scheme|=lo| to establish bounds
+on term sizes. \scheme|divo| is described in detail in~\citet{trs}.
+
+\scheme|divo| relies on the relation \scheme|splito| to `split' a
+binary numeral at a given length: \mbox{\scheme|(splito n r l h)|}
+holds if $n = 2^{s+1} \cdot l + h$ where $s = \norm{r}$ and $h < 2^{s+1}$.
+\scheme|splito| can construct \scheme|n| by combining the lower-order
+bits\footnote{The lowest bit of a positive number \mbox{\scheme|n|} is
+  the car of \mbox{\scheme|n|}.} of \scheme|l| with
+the higher-order bits of \scheme|h|, inserting \emph{padding} bits as
+specified by the length of \scheme|r|---\scheme|splito| is essentially
+a specialized version of \scheme|appendo|.  \scheme|splito| ensures
+that illegal values like \scheme|'(0)| are not constructed by removing
+the rightmost zeros after splitting the number \scheme|n| into its
+lower-order bits and its higher-order bits.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define splito
+  (lambda-e (n r l h)
+    (`(() __ () ()))
+    (`((0 ,b . ,n^) () () (,b . ,n^)))
+    (`((1 . ,n^) () (1) ,n^))
+    (`((0 ,b . ,n^) (,a . ,r^) () __)
+     (splito `(,b . ,n^) r^ '() h))
+    (`((1 . ,n^) (,a . ,r^) (1) __)
+     (splito n^ r^ '() h))
+    (`((,b . ,n^) (,a . ,r^) (,b . ,l^) __)
+     (poso l^)
+     (splito n^ r^ l^ h))))
+\end{schemedisplay}
+
+% Second, the definition of the \scheme|splito| helper
+% relation is so complicated because it must avoid instantiating numbers
+% to illegal values.
+
+% \scheme|splito|'s definition is so complicated
+% because \scheme|splito| must not allow the list \scheme|'(0)| to
+% represent a number.  For example, \mbox{\scheme|(splito '(0 0 1) '()
+%   '() '(0 1))|} should succeed, but \mbox{\scheme|(splito '(0 0 1) '()
+%   '(0) '(0 1))|} should fail.
+
+% \scheme|l| contains the lowest bits of \scheme|n| (if any), while \scheme|h|
+% contains \scheme|n|'s highest bits.  
+
+% The \scheme|splito| relation is similar to the ternary
+% \scheme|appendo| relation: appending \scheme|l|
+
+% $\norm{r} - \norm{l} + 1$ padding bits
+
+%  and \scheme|h| yields \scheme|n|, where \scheme|l|,
+% \scheme|h|, and \scheme|n| represent non-negative integers using our
+% little-endian list scheme.  \scheme|l| contains the lowest bits of
+% \scheme|n|, while \scheme|h| contains \scheme|n|'s highest bits.
+
+% The call \mbox{\scheme|(splito n '() l h)|} \emph{moves} the lowest
+% bit\footnote{The lowest bit of a positive number \mbox{\scheme|n|} is
+%   the \mbox{\scheme|car|} of \mbox{\scheme|n|}.} of \scheme|n|, if
+% any, into \scheme|l|, and moves the remaining bits of \scheme|n| into
+% \scheme|h|; \mbox{\scheme|(splito n '(1) l h)|} moves the two lowest
+% bits of \scheme|n| into \scheme|l| and moves the remaining bits of
+% \scheme|n| into \scheme|h|; and \mbox{\scheme|(splito n '(1 1 1 1) l h)|}, 
+% \mbox{\scheme|(splito n '(0 1 1 1) l h)|}, or
+% \mbox{\scheme|(splito n '(0 0 0 1) l h)|} move the five lowest bits of
+% \scheme|n| into \scheme|l| and move the remaining bits into
+% \scheme|h|; and so on.
+
+% Since \scheme|splito| is a relation, it can construct \scheme|n| by
+% combining the lower-order bits of \scheme|l| with the higher-order
+% bits of \scheme|h|, inserting \emph{padding} bits as specified by the
+% length of \scheme|r|.
+
+% \scheme|splito|'s definition is so complicated
+% because \scheme|splito| must not allow the list \scheme|'(0)| to
+% represent a number.  For example, 
+% \mbox{\scheme|(splito '(0 0 1) '() '() '(0 1))|} should succeed, but
+% \mbox{\scheme|(splito '(0 0 1) '() '(0) '(0 1))|} should fail.
+% \scheme|splito| ensures that illegal values like \scheme|'(0)| are not
+% constructed by removing the rightmost zeros after splitting the number
+% \scheme|n| into its lower-order bits and its higher-order bits.
+
+
+
+\section{Logarithm and Exponentiation}\label{arithexplog}
+
+We end this chapter by defining relations for logarithm with remainder
+and exponentiation.
+
+\newpage
+
+%\schemedisplayspace
+\begin{schemedisplay}
+(define logo
+  (lambda-e (n b q r)
+    (`((1) __ () ()) (poso b))
+    (`(__ __ () __) (<o n b) (pluso r '(1) n))
+    (`(__ __ (1) __) (>1o b) (=lo n b) (pluso r b n))
+    (`(__ (1) __ __) (poso q) (pluso r '(1) n))
+    (`(__ () __ __) (poso q) (== r n))
+    (`((,a ,b^ . ,dd) (0 1) __ __) (poso dd)
+     (exp2o n '() q)
+     (exist (s) (splito n dd r s)))
+    (`(__ __ __ __)
+     (exist (a b^ add ddd)
+       (conde
+         ((== '(1 1) b))
+         ((== `(,a ,b^ ,add . ,ddd) b))))
+     (<lo b n)
+     (exist (bw1 bw nw nw1 ql1 ql s)
+       (exp2o b '() bw1)
+       (pluso bw1 '(1) bw)
+       (<lo q n)
+       (exist (q^ bwq1)
+         (pluso q '(1) q^)
+         (mulo bw q^ bwq1)
+         (<o nw1 bwq1))
+       (exp2o n '() nw1)
+       (pluso nw1 '(1) nw)
+       (divo nw bw ql1 s)
+       (pluso ql '(1) ql1)
+       (<=lo ql q)
+       (exist (bql qh s qdh qd)
+         (repeated-mulo b ql bql)
+         (divo nw bw1 qh s)
+         (pluso ql qdh qh)
+         (pluso ql qd q)
+         (<=o qd qdh)
+         (exist (bqd bq1 bq)
+           (repeated-mulo b qd bqd)
+           (mulo bql bqd bq)
+           (mulo b bq bq1)
+           (pluso bq r n)
+           (<o n bq1)))))))
+\end{schemedisplay}
+
+Given numbers \scheme|n|, \scheme|b|, \scheme|q|, and \scheme|r|,
+\scheme|logo| satisfies $n = b^q + r$, where $0 \leq n$ and where $q$
+is the largest number that satisfies the equation.  The \scheme|logo|
+definition is similar to \scheme|divo|, but uses exponentiation rather
+than multiplication\footnote{A line-by-line description of the Prolog
+version of \scheme|logo| and its helper relations can be found at
+\url{http://okmij.org/ftp/Prolog/Arithm/pure-bin-arithm.prl}}.
+
+%% From Oleg:
+% When b = 2, exponentiation and discrete logarithm are easier to obtain
+% n = 2^q + r, 0<= 2*r < n
+% Here, we just relate n and q.
+%    exp2 n b q
+% holds if: n = (|b|+1)^q + r, q is the largest such number, and
+% (|b|+1) is a power of two.
+%
+% Side condition: (|b|+1) is a power of two and b is L-instantiated.
+% To obtain the binary exp/log relation, invoke the relation as
+%  (exp2 n '() q)
+% Properties: if n is L-instantiated, one solution, q is fully instantiated.
+% If q is fully instantiated: one solution, n is L-instantiated.
+% In any event, q is always fully instantiated in any solution
+% and n is L-instantiated.
+% We depend on the properties of split.
+
+\scheme|logo| relies on helpers \scheme|exp2o| and
+\scheme|repeated-mulo|.  \scheme|exp2o| is a simplified version of
+exponentiation; given our binary representation of numbers,
+exponentiation using base two is particularly simple.
+\mbox{\scheme|(exp2o n '() q)|} satisfies $n = 2^q$; the more general
+\mbox{\scheme|(exp2o n b q)|} satisfies $n = (\norm{b}+1)^q + r$ for
+some \scheme|r|, where \scheme|q| is the largest such number and $0
+\leq 2 \cdot r < n$, provided that \scheme|b| is length-instantiated
+and $\norm{b}+1$ is a power of two.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define exp2o
+  (lambda (n b q)
+    (match-e `(,n ,q)
+      (`((1) ()))
+      (`(__ (1))
+       (>1o n)
+       (exist (s)
+         (splito n b s '(1))))
+      (`(__ (0 . ,q^))
+       (exist (b^)
+         (poso q^)
+         (<lo b n)
+         (appendo b `(1 . ,b) b^)
+         (exp2o n b^ q^)))
+      (`(__ (1 . ,q^))
+       (exist (nh b^ s)
+         (poso q^)
+         (poso nh)
+         (splito n b s nh)
+         (appendo b `(1 . ,b) b^)
+         (exp2o nh b^ q^))))))
+\end{schemedisplay}
+
+%% From Oleg:
+% nq = n^q where n is L-instantiated and q is fully instantiated
+
+\mbox{\scheme|(repeated-mulo n q nq)|} satisfies $nq = n^q$ provided
+\scheme|n| is length-instantiated and \scheme|q| is fully
+instantiated.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define repeated-mulo
+  (lambda (n q nq)
+    (match-e q
+      (`() (== (1) nq) (poso n))
+      (`(1) (== n nq))
+      (__
+        (>1o q)
+        (exist (q^ nq1)
+          (pluso q^ '(1) q)
+          (repeated-mulo n q^ nq1)
+          (mulo nq1 n nq))))))
+\end{schemedisplay}
+
+This simple \scheme|logo| example shows that $14 = 2^3 + 6$.
+
+\wspace
+
+\noindent\scheme|(run* (q) (logo '(0 1 1 1) '(0 1) '(1 1) q))| $\Rightarrow$ \scheme|`(0 1 1)|
+
+\wspace
+
+A more sophisticated example of \scheme|logo| is
+
+\schemedisplayspace
+\begin{schemedisplay}
+(run9 (s)
+  (exist (b q r)
+    (logo '(0 0 1 0 0 0 1) b q r)
+    (>1o q)
+    (== `(,b ,q ,r) s))) $\Rightarrow$
+\end{schemedisplay}
+\nspace
+\begin{schemeresponse}
+((() (_.0 _.1 . _.2) (0 0 1 0 0 0 1))
+ ((1) (_.0  _.1 . _.2) (1 1 0 0 0 0 1))
+ ((0 1) (0 1 1) (0 0 1))
+ ((1 1) (1 1) (1 0 0 1 0 1))
+ ((0 0 1) (1 1) (0 0 1))
+ ((0 0 0 1) (0 1) (0 0 1))
+ ((1 0 1) (0 1) (1 1 0 1 0 1))
+ ((0 1 1) (0 1) (0 0 0 0 0 1))
+ ((1 1 1) (0 1) (1 1 0 0 1))),
+\end{schemeresponse}
+
+\noindent which shows that:
+
+\noindent$68 = 0^n + 68$ where $n$ is greater than one,
+
+\nspace
+
+\noindent$68 = 1^n + 67$ where $n$ is greater than one,
+
+\nspace
+
+\noindent$68 = 2^6 + 4$,
+
+\nspace
+
+\noindent$68 = 3^3 + 59$,
+
+\nspace
+
+\noindent$68 = 4^3 + 4$,
+
+\nspace
+
+\noindent$68 = 8^2 + 4$, 
+
+\nspace
+
+\noindent$68 = 5^2 + 43$, 
+
+\nspace
+
+\noindent$68 = 6^2 + 32$, and
+
+\nspace
+
+\noindent$68 = 7^2 + 19$.
+
+We can define the exponentiation relation in terms of \scheme|logo|.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define expo (lambda (b q n) (logo n b q '())))
+\end{schemedisplay}
+
+\noindent We can use \scheme|expo| to show that three to the fifth
+power is $243$:
+
+\wspace
+
+\noindent \scheme|(run* (q) (expo '(1 1) '(1 0 1) q))| $\Rightarrow$ \scheme|`(1 1 0 0 1 1 1 1)|.
+
+\wspace
+
+The code in this chapter demonstrates the difficulty of achieving
+refutational completeness, even for relatively simple relations.
+Bounding the sizes of terms is a very powerful technique for ensuring
+termination, but can be tricky to apply.  The definitions in this
+chapter were derived from equations defining arithmetic operators, and
+from the design of hardware half-adders and full-adders.  It would
+have been extremely difficult to write this code from first
+principles.
+

@@ -1,0 +1,286 @@
+Sept 30, 2009
+
+\schemecodehook should affect only displays, not in-text code.  Phil
+Bewig.
+
+Sept 28, 2009
+
+datum->syntax etc spelling changes.  Phil Bewig.
+
+June 9, 2005
+
+\dq redefined to include \tt or \ttfamily.  John Clements.
+
+Bump *max-line-length* to 300 (from 200).  John Clements.
+
+2.4z2a
+
+Nov 23, 2002
+
+Updated scmxlate confign.
+
+2.4z2
+
+Nov 1, 2002
+
+Dialect `plt' creates slatex module (as opposed to
+dialect `mzscheme', which just creates a file of
+definitions).  (John Clements)
+
+For `plt' module to work, setf macro shouldn't rely on
+slatex-error at expansion-time.  (John Clements)
+
+slatex.sty message modification to allow for
+version disparity between slatex.sty (TeX code) and
+slatex.scm (Scheme code).   (John Clements)
+
+2.4z1
+
+Oct 31, 2002
+
+Replaced define-macro by define-syntax
+
+Oct 28, 2002
+
+Added missing \enableslatex in slatxdoc.tex
+
+2.4z
+
+Mar 17, 2002
+
+Modernize configuration to be more in line 
+with my other programs (tex2page, etc).
+
+Port to scsh, sxm.  petite == chez.
+
+2.4y3
+
+Mar 2, 2002
+
+Use \CR instead of \cr in \m@ketabbox defn because it
+appears to somehow (how?) clash with LaTeX's
+{tabular}.  Based on bug report by Greg Sullivan
+showing that {schemebox} inside a {tabular} was
+erroring.
+
+2.4y2
+
+Dec 24, 2001
+
+Make full SLaTeX doc online-browsable.
+
+Dec 23, 2001
+
+Accept MzScheme v200 (in addition to previous
+versions).
+
+Nov 10, 2001
+
+\+ in slatex.sty clashing with url.sty.  Reported by 
+Francois-Rene Rideau.  Corrected by changing \+ to
+\tabalignaux.
+
+2.4y1
+
+Feb 19, 2001
+
+\ZZZZinput definition fixed so that 
+reasonable redefinitions of \input won't
+cause it to fail.  
+
+2.4y
+
+Dec 23, 2000
+
+Opening string " at the very end of a line caused
+problems.  Problem reported by Matthias Felleisen
+(PLT bug number 1802)
+
+2.4x
+
+Feb 19, 2000
+
+{schemetopbox}, like {schemebox} but aligns
+them using their tops.  Code added by
+John Brinckerhoff Clements and Robby Findler.
+
+2.4w
+
+9 Oct 1999
+
+Read cr before lf when reading files on Windows (Shriram report) 
+
+Token delimitation strengthened (John Clements bug
+report).
+
+CL set-dispatch-macro-character arg should be uppercase
+character because CLISP doesn't automatically upcase
+it as standard suggests
+
+2.4v
+
+8 Mar 1999
+
+Comma'd forms inside backquote should get the right font
+assignment even if preceded by quote.  (Shriram bug report)
+
+2.4u
+
+15 Jan 1999
+
+Use require-library instead of reference-library.
+
+pathproc.scm: *path-separator*, *directory-mark*,
+*file-hider* have approp values for OS = Windows.
+
+MzScheme/Win95 slatex.bat should contain Windows-style
+line termination.
+
+Config file for CLISP on Win 95.
+
+Jun 8, 1998
+
+2.4t
+
+distribution mishap fix
+
+May 1, 1998
+
+2.4s
+
+Port to STk
+
+Apr 21, 1998
+
+2.4r
+
+Port to Allegro Common Lisp for Linux.  Minor config
+bugs nixed.
+
+Apr 1998
+
+2.4q
+
+Ports to Windows 95, Gambit, MIT Scheme.
+
+Apr 1997
+
+2.4 p
+
+{schemeregion} should not collapse lines with TeX comments
+into one (nor should it eat the comment character).
+
+v. 2.4o
+
+Fixed indentation bug caused by implicit space after \\
+in tab environment.
+
+Feb 1997
+v. 2.4n
+
+Fixed bug that caused \begin{schemebox} to produce space at
+paragraph begin (Matthias Felleisen).
+
+Ported to Bigloo, thanks to Christian Queinnec.
+
+* typesets as \ast.  (* "as is" is too high.)
+
+Ported to Guile.
+
+May 1996
+v 2.4m
+
+Ported to MzScheme.
+
+Check that config.dat has right number of answers.
+Eliminates common typos while setting up config.dat
+(Shriram's sugg.).
+
+Accommodate Schemes that allow loading of files mentioned on
+the command-line, but using an option such as -load or -f
+(Shriram's sugg).
+
+Changed names in preproc.scm to avoid collision with
+existing Scheme procs, if any.  (Shriram Krishnamurthi's
+idea.)
+
+Ported to GCL (Linux).
+Changes to package system -- uses CL's package sys in CL.
+dump-display made more efficient.
+Cleaned up bat config.
+
+Feb 1996
+v 2.4l
+
+Ported to Macintosh Common Lisp.
+
+Version number reported on invocation and whilst loading
+slatex.sty (to enable trenchant bug reporting).
+
+No longer requires "system" procedure spec from user via
+config.dat.  Other config info should be sufficient to
+deduce this.  One less confusion.
+
+v 2.4k
+
+-- and --- in Scheme tokens are treated as minuses rather
+than en- and em-dash.  Mike Ernst's idea.
+
+v 2.4j
+
+Now recognizes :keywords as data in CL.
+
+Left margin error in indented {schemedisplay}s corrected
+
+Package system made more robust
+
+Apr 1995
+v 2.4
+Support for OS/2, both FAT and HPFS.
+
+Included sample Rexx script (for OS/2 + emTeX + scm)
+that has robust TEXINPUT recognition.
+
+Fixed paragraph indentation bug after {schemedisplay}
+within {schemeregion}.
+
+Recognizes LaTeX2e files in addition to LaTeX2.09.
+
+Sentence-ending space doesn't follow null?, set!, etc.
+
+Documentation converted to plain TeX.
+
+Added {schemeresponse}, {schemeresponsebox}, and their
+corresponding \defscheme*token and \undefscheme*token.
+
+Fixed bug related to quoted special symbols;
+quoted math escapes; and quoted strings.
+
+Added \setdata in analogy with \setkeyword,
+\setvariable, and \setconstant.
+\schemeresult, etc., distinguish between constant and
+data -- data items are set in \datafont; everything
+else in \constantfont.
+
+Removed bogus \ignorespaces from \slatexdisable.
+
+Typeset code is now frenchspaced (instead of using
+\null's) to avoid sentence-ending spaces after ! and ?.
+Mark Krentel's idea.
+
+Added config code for Matthias Blume's VSCM.
+
+Jan 1994
+v 2.3
+
+The Dark Years
+Several bug fixes
+
+Dec 1991
+First major update
+
+Mar 1991
+First public release
+
+1990
+First Rice PLT release

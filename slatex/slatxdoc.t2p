@@ -1,0 +1,43 @@
+
+\cssblock
+/*
+.scheme .variable {
+  font-style: italic;
+}*/ 
+
+\endcssblock
+
+\dontuseimgforhtmlmath
+\slatexlikecomments
+
+\def\re#1{%
+\evalh{(do-end-para)}%
+\rawhtml<table bgcolor="#e5e5e5" width=90% cellspacing=0>
+<tr><td align=left><b><font color=purple>\endrawhtml
+{\obeylines#1}%
+\rawhtml</font></b></td></tr></table>\endrawhtml
+\par}
+
+
+% Redefine \section so that it starts a fresh page
+
+%\let\ORIGsection\section
+%\def\section{\vfill\eject\ORIGsection}
+
+\imgpreamble
+\input slatex.sty
+\magnification\magstep2
+\endimgpreamble
+
+\scmkeyword{setq}
+
+\imgdef\lambda{$\lambda$}
+\imgdef\land{$\land$}
+\imgdef\subseteq{$\subseteq$}
+\imgdef\supseteq{$\supseteq$}
+\imgdef\equiv{$\equiv$}
+\imgdef\ne{$\ne$}
+\imgdef\top{$\top$}
+\imgdef\bot{$\bot$}
+
+

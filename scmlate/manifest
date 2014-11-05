@@ -1,0 +1,19 @@
+COPYING
+README
+INSTALL
+manifest
+makefile
+scmxlate.scm
+scmxlate.cl
+index.tex
+scm2cl.cl
+clnames.cl
+clmacros.cl
+clprocs.cl
+mbe-procs.cl
+scm2cl.tex
+history
+scmxlate-version.tex
+sample.configure
+
+;last change: 2005-03-15

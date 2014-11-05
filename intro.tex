@@ -1,0 +1,389 @@
+\chapter{Introduction}\label{introchapter}
+
+\section{My Thesis}
+\begin{quotation}
+\begin{flushright}
+\textit{A beginning is a very delicate time.}\\
+---Princess Irulan
+\end{flushright}
+\end{quotation}
+
+
+\noindent miniKanren supports a variety of relational idioms and
+techniques, making it feasible and useful to write interesting
+programs as relations.
+
+The promise of logic programming is that programs can be written {\em
+  relationally}, without distinguishing between input and output
+arguments.  Each relation produces meaningful answers, even when all
+of its arguments are unbound logic variables.  Relational programs are
+remarkably flexible---for example, a relational type inferencer can
+also perform type checking and type inhabitation.  Similarly, a
+relational theorem prover can also be used as a proof checker, proof
+generator, theorem generator, and even as a primitive proof assistant.
+
+% Unfortunately, writing remarkably flexible relational programs is
+% remarkably difficult.  Relational programming requires a variety of
+% unusual and advanced tools and techniques: for example, a relational
+% interpreter for a subset of Scheme might use nominal unification to
+% support variable binding and scope, Constraint Logic Programming over
+% Finite Domains (CLP(FD)) to implement relational arithmetic, and
+% tabling to improve termination behavior.  In addition, relational
+% programmers must give up many standard but non-declarative programming
+% constructs used in traditional logic programming, such as Prolog's
+% infamous cut operator\footnote{Prolog's cut operator ({\tt !}) prunes
+%   the program's search tree, which can greatly improve efficiency and
+%   even avoid divergence for infinite search trees.  Unfortunately,
+%   careless use of cut can prune nodes that contain answers, resulting
+%   in an unsound program.}.  As a result of these difficulties,
+% non-trivial Prolog programs are rarely written as relations.  Newer
+% languages such as Curry and Mercury attempt to solve this problem by
+% using only declative language features.  While these languages offer
+% many interesting and useful declarative constructs, 
+
+% potentially diverging when used with logic variables rather than
+% ground terms.
+
+% Thus, the promise of
+% logic programming remains largely unfulfilled.  What is needed is a
+% language for {\em relational programming}, as opposed to logic
+% programming or even declarative programming.
+
+Unfortunately, writing remarkably flexible relational programs is
+remarkably difficult, and requires a variety of unusual and advanced
+tools and techniques.  For example, a relational interpreter for a
+subset of Scheme might use nominal unification to support variable
+binding and scope, Constraint Logic Programming over Finite Domains
+(CLP(FD)) to implement relational arithmetic, and tabling to improve
+termination behavior.
+
+This dissertation presents {\em miniKanren}, a family of languages
+specifically designed for relational programming, and which supports a
+variety of relational idioms and techniques.  We show how miniKanren
+can be used to write interesting relational programs, including an
+extremely flexible lean tableau theorem prover and a novel
+constraint-free binary arithmetic system with strong termination
+guarantees.  We also present interesting and practical techniques used
+to implement miniKanren, including a nominal unifier that uses
+triangular rather than idempotent substitutions and a novel
+``walk''-based algorithm for variable lookup in triangular
+substitutions.
+
+Chapter~\ref{mkintrochapter} presents the core miniKanren language,
+which we then extend with disequality constraints
+(Chapter~\ref{diseqchapter}), nominal logic (Chapter~\ref{akchapter}),
+tabling (Chapter~\ref{tablingchapter}), and expression-level
+divergence avoidance using ferns (Chapter~\ref{fernschapter}).  We
+provide implementations of all of these language extensions in
+Chapters~\ref{mkimplchapter}, \ref{walkimpl}, \ref{diseqimplchapter},
+\ref{akimplchapter}, \ref{tablingimplchapter}, and \ref{fernsimpl}.
+Together, these chapters establish the first half of my thesis:
+miniKanren supports a variety of relational idioms and techniques.
+
+To illustrate the use of these techniques, we present two
+non-trivial miniKanren applications.  The constraint-free relational
+arithmetic system of Chapter~\ref{arithchapter} and the theorem prover
+of Chapter~\ref{alphatapchapter}
+% and the term reducer of Chapter~\ref{reducerchapter} 
+establish the second half of my thesis:
+it is feasible and useful to write interesting programs as relations
+in miniKanren, using these idioms and techniques.
+
+\section{Structure of this Dissertation}
+
+With the exception of two early chapters
+(Chapters~\ref{mkintrochapter} and~\ref{divergencechapter}), each
+technical chapter in this dissertation is divided into one of three
+categories: techniques, applications, or
+implementations\footnote{Hence the title of this dissertation:
+  \emph{Relational Programming in miniKanren: Techniques,
+    Applications, and Implementations}.}.  \emph{Technique chapters}
+describe language features and idioms for writing relations, such as
+disequality constraints (Chapter~\ref{diseqchapter}) and nominal logic
+(Chapter~\ref{akchapter}).  \emph{Application chapters} demonstrate
+how to write interesting, non-trivial relations in miniKanren; these
+applications demonstrate the use of many of the language forms and
+idioms presented in the technique chapters.  \emph{Implementation
+  chapters} show how to implement the language extensions presented in
+the technique chapters.
+
+At a higher level, the dissertation is divided into six parts, which
+are organized by theme:
+
+\begin{itemize}
+
+\item Part~\ref{coremkpart} presents the core miniKanren language,
+  which we will extend in the latter parts of the dissertation.
+  Chapter~\ref{mkintrochapter} introduces the core language, along
+  with a few simple examples, while Chapter~\ref{mkimplchapter}
+  presents the implementation of the core language.  These two
+  chapters are especially important, since they form the foundation
+  for the advanced techniques and implementations that follow.  In
+  Chapter~\ref{walkimpl} we optimize the \scheme|walk| algorithm
+  presented in Chapter~\ref{mkimplchapter}, which is the heart of
+  miniKanren's unifier.  Chapter~\ref{divergencechapter} attempts to
+  categorize the many ways miniKanren programs can diverge, and
+  describes techniques that can be used to avoid each type of
+  divergence.  Avoiding divergence while maintaining declarativeness is
+  what makes relational programming so fascinating, yet so
+  challenging.  Chapter~\ref{arithchapter} presents a non-trivial
+  application of core miniKanren: a constraint-free arithmetic system
+  with strong termination guarantees.
+  
+\item Part~\ref{diseqpart} extends core miniKanren with disequality
+  constraints, which allow us to express that two terms are different,
+  and can never be unified.  Disequality constraints express a very
+  limited form of negation, and can be seen as a very simple kind of
+  constraint logic programming.  Chapter~\ref{diseqchapter} describes
+  disequality constraints from the perspective of the user, while
+  Chapter~\ref{diseqimplchapter} shows how we can use unification in a
+  clever way to simply and efficiently implement the constraints.  We
+  give special attention to \emph{constraint reification}---the
+  process of displaying constraints in a human-friendly manner.
+
+\item Part~\ref{nominallogicpart} extends core miniKanren with
+  operators for expressing nominal logic; we call the resulting
+  language \alphakanren.  Nominal logic allows us to easily express
+  notions of scope and binding, which is useful when writing
+  declarative interpreters, type inferencers, and many other relations
+  that deal with variables.  Chapter~\ref{akchapter} introduces
+  nominal logic, explains \alphakanren's new language constructs, and
+  provides a few simple example programs.
+  Chapter
+  \ref{alphatapchapter} presents a non-trivial application of
+  \alphakanren: a relational theorem
+  prover.  In Chapter~\ref{akimplchapter} we present our
+  implementation of \alphakanren, including two different
+  implementations of nominal unification.
+
+\item Part~\ref{tablingpart} adds tabling to our implementation of
+  core miniKanren.  Tabling is a form of memoization: the answers
+  produced by a tabled relation are ``remembered'' (that is, stored in
+  a table), so that subsequent calls to the relation can avoid
+  recomputing the answers.  Tabling allows our programs to run more
+  efficiently in many cases; more importantly, many programs that
+  would otherwise diverge terminate when using tabling.
+  Chapter~\ref{tablingchapter} introduces the notion of tabling, and
+  explains which programs benefit from tabling.
+%   Chapter~\ref{reducerchapter} presents a non-trivial miniKanren
+%   application, a relational term reducer, and shows how tabling
+%   improves the termination behavior of the reducer.
+  Chapter~\ref{tablingimplchapter} presents our streams-based
+  implementation of tabling, which demonstrates the advantage of
+  embedding miniKanren in a language with higher-order functions.
+
+\item Part~\ref{fernspart} presents a bottom-avoiding data structure
+  called a \emph{fern}, and shows how ferns can be used to avoid
+  expression-level divergence.  Chapter~\ref{fernschapter} introduces
+  the fern data structure and implements a simple, miniKanren-like
+  language using ferns.  Chapter~\ref{fernsimpl} presents our
+  embedding of ferns in Scheme.
+
+\item Part~\ref{contextpart} provides context and conclusions for the
+  work in this dissertation.  Chapter~\ref{relatedworkchapter}
+  describes related work, while Chapter~\ref{futureworkchapter}
+  proposes future research.  We offer our final conclusions in
+  Chapter~\ref{conclusionchapter}.
+
+\end{itemize}
+
+The dissertation also includes four appendices.
+Appendix~\ref{helpers} contains several generic helper functions that
+could be part of any standard Scheme library.  Appendix~\ref{pmatch}
+describes and defines \scheme|pmatch|, a simple pattern matching macro
+for Scheme programs.  Appendix~\ref{matche} describes and defines
+\scheme|matche| and \scheme|lambdae|, pattern matching macros for
+writing concise miniKanren relations.  Appendix~\ref{nestable-engines}
+contains our implementation of nestable engines, which are used in our
+embedding of ferns.
+
+
+
+% For example, the theme of
+% Part~\ref{nominallogicpart} is nominal logic;
+% Part~\ref{nominallogicpart} contains one technique chapter
+% (Chapter~\ref{akchapter}), two application chapters
+% (Chapters~\ref{typeinferencerchapter} and
+% ~\ref{alphatapchapter}), and one implementation chapter
+% (Chapter~\ref{akimplchapter}).
+
+
+%This dissertation has the following structure:
+
+%\noindent [bullet list roadmap with chunking of chapters, illustrating how the
+%chapters fit together]
+
+\section{Relational Programming}
+
+Relational programming is a discipline of logic programming in which
+every goal is written as a ``pure'' relation.  Each relation produces
+meaningful answers, even when all of its arguments are unbound logic
+variables.  For example, Chapter~\ref{arithchapter} presents
+\scheme|pluso|, which performs addition over natural numbers.
+\mbox{\scheme|(pluso bn1 bn2 bn3)|}\footnote{\scheme|bn1|, 
+\scheme|bn2|, and \scheme|bn3| are shorthand for the little-endian binary 
+lists representing the numbers 1, 2, and 3---see Chapter~\ref{arithchapter} for details.}
+ succeeds, since $1+2=3$---that is,
+the triple $(1,2,3)$ is in the ternary addition relation.  We can use
+\scheme|pluso| to add two numbers: \mbox{\scheme|(pluso bn1 bn2 z)|}
+associates the logic variable \scheme|z| with \scheme|3|.  We can also
+subtract numbers using \scheme|pluso|: \mbox{\scheme|(pluso bn1 y bn3)|} 
+associates \scheme|y| with 2, since $3-1=2$.  We can even
+call \scheme|pluso| with only logic variables: \mbox{\scheme|(pluso x y z)|} 
+produces an infinite number of answers in which the natural
+numbers associated with \scheme|x|, \scheme|y|, and \scheme|z|
+satisfy \scheme|x+y=z|.  For example, one such answer associates
+\scheme|x| with 3, \scheme|y| with 4, and \scheme|z| with 7.
+
+To write relational goals, programmers must avoid a variety of
+powerful logic programming constructs, such as Prolog's
+cut ({\tt !}), {\tt var/1}, and \mbox{{\tt copy\_term/2}} operators.  These
+operators inhibit relational programming, since their proper use is
+dependent upon the groundness or non-groundness of terms\footnote{A
+  term is \emph{ground} if it does not contain unassociated logic
+  variables.}.
+%, and therefore upon the mode of the relation in which
+%they appear.  
+Programmers who wish to write relations must avoid these
+constructs, and instead use language features compatible with the
+relational paradigm.
+
+A critical aspect of relational programming is the desire for
+relations to terminate whenever possible.  Writing a goal without mode
+restrictions is not very interesting if the goal diverges when passed
+one or more fresh variables.  In particular, we desire the
+\emph{finite failure} property for our goals---if a goal is asked to
+produce an answer, yet no answer exists, that goal should fail in a
+finite amount of time.  Although G\"{o}del and Turing showed that it
+is impossible to guarantee termination for all goals we might wish to
+write, the use of clever data encoding, nominal unification, tabling,
+and the derivation of bounds on the maximum size of terms allows a
+careful miniKanren programmer to write surprisingly sophisticated
+programs that exhibit finite failure.
+
+Our emphasis on both pure relations and finite failure leads to
+different design choices than those of more established logic
+programming languages such as
+Prolog~\cite{ISO:1995:IIIe,ISO:2000:IIIf},
+Mercury~\cite{Somogyi95mercury}, and
+Curry~\cite{Hanus95curry:a,Hanus06}.  For example, unlike Prolog,
+miniKanren uses a complete (interleaving) search strategy by default.
+Unlike Mercury, miniKanren uses full unification, required to
+implement goals that take only fresh logic variables as their
+arguments\footnote{Mercury is statically typed, and requires
+  programmers to specify ``mode
+  annotations''~\cite{Apt94reasoningabout} indicating whether each
+  argument to a goal is an ``input'' (that is, fully ground) or an
+  ``output'' (that is, an unassociated logic variable).  Programmers
+  also specify whether each goal can produce one, finitely many, or
+  infinitely many answers.  Given all this information, the Mercury
+  compiler can generate multiple specialized functions that perform
+  the work of a single goal.  For example, a ternary goal that
+  expresses addition (similar to the \scheme|pluso| function described
+  above) might be compiled into separate functions that perform
+  addition or subtraction; at runtime, the appropriate function will
+  be called depending on which arguments are ground.  In fact,
+  compiled Mercury programs do not use logic variables or unification,
+  and are therefore extremely efficient.  Unfortunately, this lack of
+  unification means it is not possible to write Mercury goals that
+  take only ``output'' variables.}.  And our desire for termination
+prevents us from adapting Curry's
+residuation\footnote{\emph{Residuation}~\cite{hanus:jlp95} suspends
+  certain operations on non-ground terms, until those terms become
+  ground.  For example, we could use residuation to express addition
+  using Scheme's built-in \scheme|+| procedure.  If we try to add
+  \scheme|x| and 5, and \scheme|x| is an unassociated logic variable,
+  we suspend the addition, and instead try running another goal.
+  Hopefully this goal will associate \scheme|x| with a number; when
+  that happens, we can perform the addition.  However, if \scheme|x|
+  never becomes ground, we will be unable to perform the addition, and
+  we will never produce an answer.}.
+
+\section{miniKanren}
+
+This dissertation presents miniKanren, a language designed for
+relational programming, along with various language extensions that
+add expressive power without sacrificing the ability to write
+relations.
+
+% The premise of this work is that:
+% \begin{enumerate}
+% \item Logic programmers should strive to write their programs as
+%   relations, without mode restrictions,
+% \end{enumerate}
+% and
+% \begin{enumerate}
+% \item[2.] miniKanren's combination of relational language constructs,
+%   along with its easily modifiable, purely functional implementation,
+%   makes it uniquely suited for relational programming.
+% \end{enumerate}
+
+miniKanren is implemented as an embedding in Scheme, using only a
+handful of special forms and functions.  The concise and purely
+functional implementation of the core operators makes the language
+easy to extend.  miniKanren programmers have access to all of Scheme,
+including higher-order functions, first-class continuations, and
+Scheme's unique and powerful hygienic macro system.  Having access to
+Scheme's features makes it easy for implementers to extend miniKanren;
+for example, from a single figure explaining XSB-style OLDT resolution
+we were able to design and implement a tabling system for miniKanren
+in under a week.
+
+This thesis presents complete Scheme implementations of core
+miniKanren and its extensions, including two versions of nominal
+unification, a simple constraint system, a streams-based tabling
+system, and a minimal implementation of a miniKanren-like language
+using the bottom-avoiding fern data-structure.  Our implementation of
+core miniKanren is purely functional, and is designed to be easily
+modifiable, encouraging readers to experiment with and extend
+miniKanren.
+
+\section{Typographical Conventions}
+
+% [META This section is likely to grow, and perhaps turn into a table.]
+
+The code in this dissertation uses the following typographic conventions.  Lexical variables are in \scheme{italic}, forms are in {\bf boldface}, and quoted symbols are in {\sf sans serif}.
+Quotes, quasiquotes, and unquotes are suppressed,
+and quoted or quasiquoted lists appear with bold parentheses---for example \scheme{`()} and \mbox{\scheme|`(x . ,x)|} are entered as
+\qqmagicoff 
+\texttt{'()} and \mbox{\texttt{`(x . \!,x)}}, respectively.
+\qqmagicon 
+By our convention, names of relations end with a superscript $o$---for example \scheme{substo}, which is entered as {\tt substo}.  Relational operators do not follow this convention:  \scheme{==} (entered as {\tt ==}), \scheme{conde} (entered as {\tt conde}), and \scheme{exist}.  Chapter~\ref{diseqchapter} introduces the relational operator \scheme|=/=| (entered as {\tt =/=}), while Chapter~\ref{akchapter} introduces \scheme{fresh}, \scheme|hash| (entered as {\tt hash}), and the term constructor \scheme|tie| (entered as {\tt tie}).  Similarly, \mbox{\scheme|(run5 (q) body)|} and \mbox{\scheme|(run* (q) body)|} are entered as \mbox{{\tt (run 5 (q) body)}} and \mbox{{\tt (run* (q) body)}}, respectively.
+
+\scheme|lambda| is entered as {\tt lambda}.
+\scheme|lambdae| from Appendix~\ref{matche} is entered as {\tt lambdae}.
+The arithmetic relations \scheme|<=lo| and \scheme|<=o| from
+Chapter~\ref{arithchapter} are entered as {\tt <=lo} and {\tt <=o},
+respectively. \scheme|occurs-check| from Chapter~\ref{mkimplchapter} 
+is entered as {\tt occurs-check}.
+
+% [TODO point out how to enter \scheme|>1o|, \scheme|<o|, 
+% =lo, <lo, <=lo, <=o,
+% and other
+% arithmetic names.  Say something about R5RS compatibility.
+% lambda, lambdae, matche,
+% ]
+
+
+%   \section{Where to Find the Source Code}
+
+%   [various implementations, arithmetic system, type inferencer,
+%   alphaleanTAP, etc.]
+
+%   \section{Logic Programming and Relations}
+
+%     \subsection{Logic Programming}
+
+%     \noindent [Dan says I should do something like this: for
+%     convenience, in the sequel logic programming is just referred to
+%     as ``programming'']
+
+%     \subsection{Relations}
+
+%     \subsection{The Problem}
+
+%     \noindent [perhaps give a simple example or two showing difficulty
+%     of writing relations: perhaps rembero, demonstrating the need for
+%     constraints [or something based on lambda calculus, demonstrating
+%     need for nominal logic], and an example showing divergence,
+%     demonstrating the need for bounds or constraints]

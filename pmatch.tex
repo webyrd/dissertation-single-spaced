@@ -1,0 +1,153 @@
+\chapter{{\bf pmatch}}\label{pmatch}
+
+In this appendix we describe \scheme|pmatch|, a simple pattern
+matcher written by Oleg Kiselyov.
+Let us first consider a simple example of \scheme|pmatch|.  
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define h
+  (lambda (x y)
+    (pmatch `(,x . ,y)
+      (`(,a . ,b) (guard (number? a) (number? b)) (+ a b))
+      (`(__ . ,c) (guard (number? c)) (* c c))
+      (else (* x x)))))
+\end{schemedisplay}
+
+\noindent\scheme{(list (h 1 2) (h 'w 5) (h 6 'w))} $\Rightarrow$ \begin{schemeresponsebox}(3 25 36)\end{schemeresponsebox}
+
+\wspace
+
+\noindent
+In this example, a dotted pair is matched against three
+different kinds of patterns.
+
+In the first pattern, the value of \scheme{x} is
+lexically bound to \scheme{a} and the value of \scheme{y} is lexically bound to
+\scheme{b}.  Before the pattern match succeeds, however, an
+optional guard is run within the scope of \scheme{a} and \scheme{b}.  
+The guard succeeds only if \scheme{x} and \scheme{y} are numbers; 
+if so, then the sum of \scheme{x} and \scheme{y} is returned.  
+
+The second pattern matches against a pair, 
+provided that the optional guard succeeds.
+If so, the value of \mbox{\scheme|y|} is lexically bound
+to \scheme{c}, and the square of \scheme{y} is returned.
+
+If the second pattern fails to match against \mbox{\scheme|`(,x . ,y)|},
+because \scheme{y} is not a number, then the third and final clause is tried.
+An \scheme{else} pattern matches against \emph{any} value, and never includes a guard.
+In this case, the clause returns the square of \scheme{x}, which must be
+a number in order to avoid an error at runtime.
+
+Below is the definition of \scheme{pmatch}, which is implemented using
+continuation-passing-style macros \cite{oai:CiteSeerPSU:392916}.
+
+\newpage
+
+%\schemedisplayspace
+\begin{schemedisplay}
+(define-syntax pmatch
+  (syntax-rules (else guard)
+    ((_ (op arg ...) cs ...)
+     (let ((v (op arg ...)))
+       (pmatch v cs ...)))
+    ((_ v) (if #f #f))
+    ((_ v (else e0 e ...)) (begin e0 e ...))
+    ((_ v (pat (guard g ...) e0 e ...) cs ...)
+     (let ((fk (lambda () (pmatch v cs ...))))
+       (ppat v pat 
+         (if (and g ...) (begin e0 e ...) (fk))
+         (fk))))
+    ((_ v (pat e0 e ...) cs ...)
+     (let ((fk (lambda () (pmatch v cs ...))))
+       (ppat v pat (begin e0 e ...) (fk))))))
+
+(define-syntax ppat
+  (syntax-rules (__ quote unquote)
+    ((_ v __ kt kf) kt)
+    ((_ v () kt kf) (if (null? v) kt kf))
+    ((_ v quotelit kt kf)
+     (if (equal? v quotelit) kt kf))
+    ((_ v (unquote var) kt kf) (let ((var v)) kt))
+    ((_ v (x . y) kt kf)
+     (if (pair? v)
+       (let ((vx (car v)) (vy (cdr v)))
+         (ppat vx x (ppat vy y kt kf) kf))
+       kf))
+    ((_ v lit kt kf) (if (equal? v quotelit) kt kf))))
+\end{schemedisplay}
+
+The first clause ensures that the expression whose value is to be
+\scheme{pmatch}ed against is evaluated only once.  The second clause
+returns an unspecified value if no other clause matches.
+
+The remaining clauses represent the three types of patterns supported
+by \scheme{pmatch}.  The first is the trivial \scheme{else} clause,
+which matches against any datum, and which behaves identically to an
+\scheme{else} clause in a \scheme{cond} expression.  The other two
+clauses are identical, except that the first one includes a guard
+containing one or more expressions---if the datum matches against the
+pattern, the guard expressions are evaluated in left-to-right order.
+If a guard expression evaluates to \scheme{#f}, then it is as if the
+datum had failed to match against the pattern: the remaining guard
+expressions are ignored, and the next clause is tried.
+The expression \scheme{(fk)} is evaluated if the pattern it is
+associated with fails to match, or if the pattern matches but the
+guard fails.
+
+\scheme{ppat} does the actual pattern matching over constants and
+pairs. The wild-card pattern \scheme{__} matches against \emph{any} value%
+\footnote{The \scheme|pmatch| presented in~\cite{alphamk} uses a single underscore ({\tt \_}) as the wild-card pattern. Here we use a double underscore ({\tt \_\_}) for compatibility with \RsixRS.};
+the second pattern matches against the empty list;
+the third pattern matches against a quoted value; and
+the fourth pattern matches against \scheme{any} value, 
+and binds that value to a lexical variable with the specified identifier name.  
+The fifth pattern matches against a pair, tears it apart, 
+and recursively matches the \scheme{car} of the value against
+the \scheme{car} of the pattern.  If that succeeds, the \scheme{cdr} 
+of the value is recursively matched against the \scheme{cdr} of the pattern.  
+(We use \scheme{let} to avoid building long \scheme{car/cdr} chains.)
+The last pattern matches against constants, including symbols.
+
+Here is the definition of \scheme{h} after expansion.  
+\schemedisplayspace
+\begin{schemedisplay}
+(define h
+  (lambda (x y)
+    (let ((v `(,x . ,y)))
+      (let ((fk (lambda ()
+                  (let ((fk (lambda () (* x x))))
+                    (if (pair? v)
+                      (let ((vx (car v)) (vy (cdr v)))
+                        (let ((c vy))
+                          (if (number? c) (* c c) (fk))))
+                      (fk))))))
+        (if (pair? v)
+          (let ((vx (car v)) (vy (cdr v)))
+            (let ((a vx))
+              (let ((b vy))
+                (if (and (number? a) (number? b))
+                  (+ a b)
+                  (fk)))))
+          (fk))))))
+\end{schemedisplay}
+
+There are four kinds of improvements that should be resolved by the
+compiler.  First, \scheme{vx} is not used in the top definition of
+\scheme{fk}, so it should not get a binding. Second, the binding to
+\scheme{a} and \scheme{b} should be parallel \scheme{let} bindings.
+Third, where \scheme{c} is bound, could have been where \scheme{vy} is
+bound, and where \scheme{a} and \scheme{b} are bound, could have been
+where \scheme{vx} and \scheme{vy} are bound, respectively.  Fourth,
+thunk creation is unnecessary where no guard is present.
+
+The \scheme{mv-let} macro used in Chapter~\ref{akimplchapter} can be defined using \scheme{pmatch}.
+\schemedisplayspace
+\begin{schemedisplay}
+(define-syntax mv-let
+  (syntax-rules () 
+    ((_ ((x ...) e) b0 b ...) (pmatch e ((,x ...) b0 b ...)))))
+\end{schemedisplay}
+
+\noindent\scheme|(mv-let ((x y z) (list 1 2 3)) (+ x y z))| $\Rightarrow$ \begin{schemeresponsebox}6\end{schemeresponsebox}

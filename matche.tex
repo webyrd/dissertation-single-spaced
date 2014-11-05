@@ -1,0 +1,210 @@
+\chapter{{\bf \matchesymbol} and {\bf \lambdaesymbol}}\label{matche}
+
+In this appendix we describe \scheme|matche| and \scheme|lambdae|,
+pattern-matching macros for writing concise miniKanren programs.
+These macros were designed by Will Byrd and implemented by Ramana
+Kumar with the help of Dan Friedman.
+
+To illustrate the use of \scheme|matche| and \scheme|lambdae|
+we will rewrite the explicit definition of \scheme|appendo|, which uses
+the core miniKanren operators \scheme|==|, \scheme|conde|, and \scheme|exist|.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define appendo
+  (lambda (l s out)
+    (conde
+      ((== '() l) (== s out))
+      ((exist (a d res)
+         (== `(,a . ,d) l)
+         (== `(,a . ,res) out)
+         (appendo d s res))))))
+\end{schemedisplay}
+
+We can shorten the \scheme|appendo| definition using \scheme|matche|.
+\scheme|matche| resembles \scheme|pmatch| (Appendix~\ref{pmatch})
+syntactically, but uses unification rather than uni-directional
+pattern matching.  \scheme|matche| expands into a \scheme|conde|;
+each \scheme|matche| clause becomes a \scheme|conde|
+clause\footnote{The \scheme|matcha| and \scheme|matchu| forms are
+  identical to \scheme|matche|, except they expand into uses of
+  \scheme|conda| and \scheme|condu|, respectively.}.  As with
+\scheme|pmatch| the first expression in each clause is an implicitly
+quasiquoted pattern.  Unquoted identifiers in a pattern are introduced
+as unassociated logic variables whose scope is limited to the pattern
+and goals in that clause.
+
+Here is \scheme|appendo| defined with \scheme|matche|.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define appendo
+  (lambda (l s out)
+    (match-e `(,l ,s ,out)
+      (`(() ,s ,s))
+      (`((,a . ,d) ,s (,a . ,res)) (appendo d s res)))))
+\end{schemedisplay}
+
+\noindent The pattern in the first clause attempts to unify the first
+argument of \scheme|appendo| with the empty list, while also unifying
+\scheme|appendo|'s second and third arguments.  The same unquoted
+identifier can appear more than once in a \scheme|matche| pattern;
+this is not allowed in \scheme|pmatch|.
+
+We can make \scheme|appendo| even shorter by using \scheme|lambdae|.
+\scheme|lambdae| just expands into a \scheme|lambda| wrapped around a
+\scheme|matche|---the \scheme|matche| matches against the
+\scheme|lambda|'s argument list\footnote{The \scheme|lambdaa| and \scheme|lambdau| forms are
+  identical to \scheme|lambdae|, except they expand into uses of
+  \scheme|matcha| and \scheme|matchu|, respectively.}.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define appendo
+  (lambda-e (l s out)
+    (`(() ,s ,s))
+    (`((,a . ,d) ,s (,a . ,res)) (appendo d s res))))
+\end{schemedisplay}
+
+The double-underscore symbol \scheme|__| represents a pattern wildcard
+that matches any value without binding it to a variable.  For example,
+the pattern in \scheme|pairo|
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define pairo
+  (lambda-e (x)
+    (`((__ . __)))))
+\end{schemedisplay}
+
+\noindent matches any pair, regardless of the values of its car and
+cdr.
+
+\scheme|lambdae| and \scheme|matche| also support nominal logic (see
+Chapter~\ref{akchapter}).  Just as unquoted identifiers in a pattern
+are introduced as unassociated logic variables, using unquote splicing
+in a pattern introduces a fresh nom whose scope is limited to the
+pattern and goals in that clause.  For example, the goal constructor
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define foo
+  (lambda (t)
+    (fresh (a b)
+      (exist (x y)
+        (conde
+          ((== (tie a (tie b `(,x ,b))) t))
+          ((== (tie a (tie b `(,y ,b))) t))
+          ((== (tie a (tie b `(,b ,y))) t))
+          ((== (tie a (tie b `(,b ,y))) t)))))))
+\end{schemedisplay}
+
+\noindent can be re-written as
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define foo
+  (lambda-e (t)
+    (`(tie-tag ,@a (tie-tag ,@b (,x ,@b))))
+    (`(tie-tag ,@a (tie-tag ,@b (,y ,@b))))
+    (`(tie-tag ,@a (tie-tag ,@b (,@b ,y))))
+    (`(tie-tag ,@a (tie-tag ,@b (,@b ,y))))))
+\end{schemedisplay}
+
+\noindent where \scheme|'tie-tag| is the tag returned by the
+\scheme|tie| constructor\footnote{Unfortunately, this explicit pattern
+matching breaks the abstraction of the \scheme|tie| constructor.}.
+
+Here is the definition of \scheme|lambdae|,
+and its impure variants \scheme|lambdaa| and \scheme|lambdau|.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define-syntax lambdae
+  (syntax-rules ()
+    ((_ (x ...) c c* ...)
+     (lambda (x ...) (matche (quasiquote (unquote x) ...) (c c* ...) ())))))
+
+(define-syntax lambdaa
+  (syntax-rules ()
+    ((_ (x ...) c c* ...)
+     (lambda (x ...) (matcha (quasiquote (unquote x) ...) (c c* ...) ())))))
+
+(define-syntax lambdau
+  (syntax-rules ()
+    ((_ (x ...) c c* ...)
+     (lambda (x ...) (matchu (quasiquote (unquote x) ...) (c c* ...) ())))))
+\end{schemedisplay}
+
+Here is the definition of \scheme|matche|, and its impure variants \scheme|matcha| and \scheme|matchu|.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define-syntax exist*
+  (syntax-rules ()
+    ((_ (x ...) g0 g ...)
+     (lambdag@ (a)
+       (inc
+         (let* ((x (var 'x)) ...)
+           (bind* (g0 a) g ...)))))))
+
+(define-syntax fresh*
+  (syntax-rules ()
+    ((_ (x ...) g0 g ...)
+     (lambdag@ (a)
+       (inc
+         (let* ((x (nom 'x)) ...)
+           (bind* (g0 a) g ...)))))))
+
+(define-syntax matche
+  (syntax-rules ()
+    ((_ (f x ...) g* . cs)
+     (let ((v (f x ...))) (matche v g* . cs)))
+    ((_ v g* . cs) (mpat conde v (g* . cs) ()))))
+
+(define-syntax matcha
+  (syntax-rules ()
+    ((_ (f x ...) g* . cs)
+     (let ((v (f x ...))) (matcha v g* . cs)))
+    ((_ v g* . cs) (mpat conda v (g* . cs) ()))))
+\end{schemedisplay}
+
+\newpage
+
+\begin{schemedisplay}
+(define-syntax matchu
+  (syntax-rules ()
+    ((_ (f x ...) g* . cs)
+     (let ((v (f x ...))) (matchu v g* . cs)))
+    ((_ v g* . cs) (mpat condu v (g* . cs) ()))))
+
+(define-syntax mpat
+  (syntax-rules (__ quote unquote unquote-splicing expand cons)
+    ((_ co v () (l ...)) (co l ...))
+    ((_ co v (pat) xs as ((g ...) . cs) (l ...))
+     (mpat co v cs (l ... ((fresh* as (exist* xs (== `pat v) g ...))))))
+    ((_ co v ((__ g0 g ...) . cs) (l ...))
+     (mpat co v cs (l ... ((exist () g0 g ...)))))
+    ((_ co v (((unquote y) g0 g ...) . cs) (l ...))
+     (mpat co v cs (l ... ((exist (y) (== y v) g0 g ...)))))
+    ((_ co v (((unquote-splicing b) g0 g ...) . cs) (l ...))
+     (mpat co v cs (l ... ((fresh (b) g0 g ...)))))
+    ((_ co v ((pat g ...) . cs) ls)
+     (mpat co v (pat expand) () () ((g ...) . cs) ls))
+    ((_ co v (__ expand . k) (x ...) as cs ls)
+     (mpat co v ((unquote y) . k) (y x ...) as cs ls))
+    ((_ co v ((unquote y) expand . k) (x ...) as cs ls)
+     (mpat co v ((unquote y) . k) (y x ...) as cs ls))
+    ((_ co v ((unquote-splicing b) expand . k) xs (a ...) cs ls)
+     (mpat co v ((unquote b) . k) xs (b a ...) cs ls))
+    ((_ co v ((quote c) expand . k) xs as cs ls)
+     (mpat co v (c . k) xs as cs ls))
+    ((_ co v ((a . d) expand . k) xs as cs ls)
+     (mpat co v (d expand a expand cons . k) xs as cs ls))
+    ((_ co v (d a expand cons . k) xs as cs ls)
+     (mpat co v (a expand d cons . k) xs as cs ls))
+    ((_ co v (a d cons . k) xs as cs ls)
+     (mpat co v ((a . d) . k) xs as cs ls))
+    ((_ co v (c expand . k) xs as cs ls)
+     (mpat co v (c . k) xs as cs ls))))
+\end{schemedisplay}

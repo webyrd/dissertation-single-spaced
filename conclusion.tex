@@ -1,0 +1,261 @@
+\chapter{Conclusions}\label{conclusionchapter}
+
+This dissertation presents the following high-level contributions:
+
+\begin{enumerate}
+\item A collection of idioms, techniques, and language constructs for
+  relational programming, including examples of their use, and a
+  discussion of each technique and when it should or should not be
+  used.
+
+\item Various implementations of core miniKanren and its variants,
+which utilize the full power of Scheme, are concise and easily
+extensible, allow sharing of substitutions, and provide backtracking
+``for free''.
+
+\item A variety of programs demonstrating the power of relational programming.
+
+\item A clear philosophical framework for the practicing relational
+programmer.
+\end{enumerate}
+
+\noindent More specifically, this dissertation presents:
+
+\begin{enumerate}
+\item A novel constraint-free binary arithmetic system with strong termination
+guarantees.
+
+\item A novel technique for eliminating uses of \mbox{{\tt copy\_term/2}}, using
+nominal logic and tagging.
+
+%\item A collection of idioms, techniques, and language constructs for
+%relational programming, including examples of their use, a
+%discussion of each technique and when it should or should not be
+%used.
+
+\item A novel and extremely flexible lean tableau theorem prover that
+acts as a proof generator, theorem generator, and even a simple
+proof assistant.
+
+% \item A flexible type inferencer that performs type checking and type
+%  inhabitation.
+
+% \item A relational term reducer.
+
+\item The first implementation of nominal unification using triangular
+substitutions, which is much faster than a naive implementation that
+follows the formal specification by using idempotent substitutions.
+
+\item An elegant, streams-based implementation of tabling,
+demonstrating the advantage of embedding miniKanren in a language with
+higher-order functions.
+
+\item A novel \emph{walk}-based algorithm for variable lookup in
+triangular substitutions, which is amenable to a variety of
+optimizations.
+
+%\item Various implementations of core miniKanren and its variants,
+%which utilize the full power of Scheme, are concise and easily
+%extensible, allow sharing of substitutions, and provide backtracking
+%``for free''.
+
+%\item A variety of simple examples demonstrating the power of relational
+%programming in miniKanren.
+
+%\item A clear philosophical framework for the practicing relational
+%programmer.
+
+\item A novel approach to expression-level divergence avoidance using
+ferns, including the first shallow embedding of ferns.
+\end{enumerate}
+
+\noindent The result of these contributions is a set of tools and
+techniques for relational programming, and example applications
+informing the use of these techniques.
+
+As stated in the introduction, the thesis of this dissertation is that
+miniKanren supports a variety of relational idioms and techniques,
+making it feasible and useful to write interesting programs as
+relations.  The technique and implementation chapters should establish
+that miniKanren supports a variety of relational idioms
+
+\noindent 
+and techniques.  The application chapters should establish that it is
+feasible and useful to write interesting programs as relations in
+miniKanren, using these idioms and techniques.
+
+A common theme throughout this dissertation is divergence, and how to
+avoid it.  Indeed, an alternative title for this dissertation could
+be, ``Relational Programming in miniKanren: Taming
+$\bot$.''\footnote{With apologies to Olin Shivers.}  As we saw in
+Chapter~\ref{divergencechapter}, there are many causes of divergent
+behavior, and different techniques are required to tame each type of
+divergence.  Some of these techniques merely require programmer
+ingenuity, such as the data representation and bounds on term size
+used in the arithmetic system of Chapter~\ref{arithchapter}.  Other
+techniques, such as disequality constraints and tabling, require
+implementation-level support.
+
+G\"{o}del and Turing showed that it is impossible to guarantee
+termination for every goal we might wish to write.  However, this does
+not mean that we should give up the fight.  Rather, it means that we
+must be willing to thoughtfully employ a variety of techniques when
+writing our relations---as a result, we can write surprisingly
+sophisticated programs that exhibit finite failure, such as our
+declarative arithmetic system.  It also means we must be creative, and
+willing to invent new declarative techniques when necessary---perhaps
+a new type of constraint or a clever use of nominal logic, for
+example\footnote{We can draw inspiration and encouragement from work
+  that has been done on NP-complete and NP-hard problems.  Knowing
+  that a problem is NP hard is not the end of the story, but rather
+  the beginning.  Special cases of the general problem may be
+  computationally tractable, while probabilistic or approximation
+  algorithms may prove useful in the general case.  (A good example is
+  probabilistic primality testing, used in cryptography for decades.
+  Although \citet{Agrawal02primesis} recently showed that primality
+  testing can be performed deterministically in polynomial time, the
+  potentially fallible probabilistic approach is still used is
+  practice, since it is more efficient.)  A researcher in this area
+  must be willing to master and apply a variety of techniques to
+  construct tractable variants of these problems. Similarly, a
+  relational programmer must be willing to master and apply a variety
+  of techniques in order to construct a relation that fails finitely.
+  This often involves trying to find approximations of logical
+  negation (such as various types of constraints).}.
+
+Of course, no one is forcing us to program relationally.  After trying
+to wrangle a few recalcitrant relations into termination, we may be
+tempted to abandon the relational paradigm, and use miniKanren's
+impure features like \scheme|conda| and \scheme|project|.  We might
+then view miniKanren as merely a ``cleaner'', lexically scoped version
+of Prolog, with S-expression syntax and higher-order functions.
+However tempting this may be, we lose more than the flexibility of
+programs once we abandon the relational approach: we lose the need to
+construct creative solutions to difficult yet easily describable
+problems, such as the \scheme|rembero| problem in
+Chapter~\ref{diseqchapter}.  
+
+The difficulties of relational programming should be embraced, not
+avoided.  The history of Haskell has demonstrated that a commitment to
+purity, and the severe design constraints this commitment implies,
+leads to a fertile and exciting design space.  From this perspective,
+the relationship between miniKanren and Prolog is analogous to the
+relationship between Haskell and Scheme.  Prolog and Scheme allow, and
+even encourage, a pure style of programming, but do not require it; in
+a pinch, the programmer can always use the ``escape hatch'' of an
+impure operator, be it cut, \scheme|set!|, or a host of other
+convenient abominations, to leave the land of purity.  miniKanren and
+Haskell explore what is possible when the escape hatch is welded shut.
+Haskell programmers have learned, and are still learning, to avoid
+explicit effects by using an ever-expanding collection of monads;
+miniKanren programmers are learning to avoid divergence by using an
+ever-expanding collection of declarative techniques, many of which
+express limited forms of negation in a bottom-avoiding manner.
+Haskell and miniKanren show that, sometimes, painting yourself into a
+corner can be liberating\footnote{President John F. Kennedy expressed this idea best, in his remarks at the dedication of the Aerospace Medical Health Center, the day before he was assassinated.
+\begin{quotation}
+We have a long way to go. Many weeks and months and years of long, tedious work lie ahead. There will be setbacks and frustrations and disappointments. There will be, as there always are,$\ldots$temptations to do something else that is perhaps easier. But this research here must go on. This space effort must go on. $\ldots$ That much we can say with confidence and conviction.
+
+    Frank O'Connor, the Irish writer, tells in one of his books how, as a boy, he and his friends would make their way across the countryside, and when they came to an orchard wall that seemed too high and too doubtful to try and too difficult to permit their voyage to continue, they took off their hats and tossed them over the wall---and then they had no choice but to follow them.
+
+    This Nation has tossed its cap over the wall of space, and we have no choice but to follow it. Whatever the difficulties, they will be overcome. Whatever the hazards, they must be guarded against. With the$\ldots$help and support of all Americans, we will climb this wall with safety and with speed---and we shall then explore the wonders on the other side.
+\end{quotation}
+Remarks at the Dedication of the Aerospace Medical Health Center\\
+President John F. Kennedy\\
+San Antonio, Texas\\
+November 21, 1963
+}.
+
+% Kennedy quote
+%
+% Remarks at the Dedication of the Aerospace Medical Health Center
+% President John F. Kennedy
+% San Antonio, Texas
+% November 21, 1963
+%
+% http://www.jfklibrary.org/Historical+Resources/Archives/Reference+Desk/Speeches/JFK/003POF03AerospaceMedicalCenter11211963.htm
+%
+%     I think the United States should be a leader. A country as rich and powerful as this which bears so many burdens and responsibilities, which has so many opportunities, should be second to none. And in December, while I do not regard our mastery of space as anywhere near complete, while I recognize that there are still areas where we are behind--at least in one area, the size of the booster--this year I hope the United States will be ahead. And I am for it. We have a long way to go. Many weeks and months and years of long, tedious work lie ahead. There will be setbacks and frustrations and disappointments. There will be, as there always are, pressures in this country to do less in this area as in so many others, and temptations to do something else that is perhaps easier. But this research here must go on. This space effort must go on. The conquest of space must and will go ahead. That much we know. That much we can say with confidence and conviction.
+%     Frank O'Connor, the Irish writer, tells in one of his books how, as a boy, he and his friends would make their way across the countryside, and when they came to an orchard wall that seemed too high and too doubtful to try and too difficult to permit their voyage to continue, they took off their hats and tossed them over the wall--and then they had no choice but to follow them.
+%     This Nation has tossed its cap over the wall of space, and we have no choice but to follow it. Whatever the difficulties, they will be overcome. Whatever the hazards, they must be guarded against. With the vital help of this Aerospace Medical Center, with the help of all those who labor in the space endeavor, with the help and support of all Americans, we will climb this wall with safety and with speed-and we shall then explore the wonders on the other side.
+
+A final, very speculative observation: it may be possible to push the
+analogy between monads and techniques for bottom avoidance further.
+Before Moggi's work on monads~\cite{moggi91notions}, the relationship
+between different types of effects was not understood---signaling an
+error, printing a message, and changing a variable's value in memory
+seemed like very different operations.  Moggi showed how these
+apparently unrelated effects could be encapsulated using monads,
+providing a common framework for a wide variety of effects.  Could it
+be that the various types of divergence described in
+Chapter~\ref{divergencechapter} are also related, in a deep and
+fundamental way?  Indeed, divergence itself is an effect.  From the
+monadic viewpoint, divergence is equivalent to an error, while from
+the relational programming viewpoint, divergence is equivalent to
+failure; is there a deeper connection?
+
+
+% Our work makes the following contributions:
+
+% \begin{enumerate}
+% \item A novel constraint-free binary arithmetic system with strong termination
+% guarantees.
+
+% \item The first implementation of nominal unification using triangular
+% substitutions, which is much faster than a naive implementation that
+% ``follows the math'' and uses idempotent substitutions.
+
+% \item An elegant, continuation-based implementation of tabling,
+% demonstrating the advantage of embedding miniKanren in a language with
+% higher-order functions.
+
+% \item A novel, \emph{walk}-based algorithm for variable lookup in
+% triangular substitutions, which is amenable to a variety of
+% optimizations.
+
+% \item Various implementations of core miniKanren and its variants,
+% which utilize the full power of Scheme, are concise and easily
+% extensible, allow sharing of substitutions, and provide backtracking
+% ``for free''.
+
+% \item A variety of simple examples demonstrating the power of relational
+% programming in miniKanren.
+
+% \item A novel and extremely flexible lean tableau theorem prover that
+% acts as a proof generator, theorem generator, and even a simple
+% proof assistant.
+
+% \item A collection of idioms, techniques, and language constructs for
+% relational programming, including examples of their use, a
+% discussion of each technique and when it should or should not be
+% used.
+
+% \item A clear philosophical framework for the practicing relational
+% programmer.
+
+% \item A novel approach to expression-level divergence avoidance using
+% ferns, including the first shallow embedding of ferns.
+
+% \item A novel technique for eliminating uses of {\tt copy\_term/2}, using
+% nominal logic and tagging.
+% \end{enumerate}
+
+% [what about our ability to implement disequality constraints using
+% unification?  We weren't the first to invent the idea, but I doubt
+% there are many implementations that use this approach, since most
+% impls don't use triangular subst.  Our impl is very similar to the
+% math.]
+
+% [re-read conclusions and abstracts of our papers to see if there are
+% more contributions, and to better characterize our contributions]
+
+% [what do these contrbutions add up to?]
+
+% My thesis is that new techniques make it increasingly feasible and useful to write
+% programs as relations. [which contributions establish the claims in my thesis statement?]
+
+% [secondary thesis?]
+
+% [closing thought?]
+
+% \cite{DBLP:conf/iclp/NearBF08}

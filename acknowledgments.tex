@@ -1,0 +1,218 @@
+\chapter*{Acknowledgments}
+
+I first want to acknowledge my mother---without her I wouldn't be here
+writing this dissertation.  My father taught me a love of science and
+nature, which led to my interest in computers and programming
+languages---without him I wouldn't be here, either.  I dedicate my
+dissertation to them, with love and admiration.
+
+I also thank my brother Brian, my sister Mary, and their spouses,
+Claudia D\'{i}az-Byrd and Donald Stevens.  I can't imagine better
+siblings or in-laws.
+
+Renzhong Chen has been part of the Byrd family for twenty years.  I
+thank him for his friendship, and for the incredible tour of China that
+was a highlight of my time in grad school. I am also grateful for the
+hospitality of Renzhong's wife, Lea~Li.
+
+Dan Friedman has been my teacher, mentor, boss, hacking buddy,
+coauthor, and friend during my six years at Indiana University.  It
+was Dan who introduced me to logic programming, and to his language
+that eventually evolved into miniKanren.
+
+I cannot thank Dan without also thanking his wife Mary and the rest of
+the Friedmans, who have been a second family to me in Bloomington.  I
+am especially grateful to Sa{\tt \{nd|mm\}}i Friedman for hours of
+amusement.
+
+My committee members, Dan, Amr, Chris, and Larry, have been
+unfailingly cheerful, patient, and supportive.  This is fortunate,
+since their intellects might otherwise be intimidating.  I am
+especially gratified that all of these scholars are deeply committed
+to the art of teaching.  Thank you all!
+
+Oleg Kiselyov taught me an unbelievable amount about logic
+programming, especially the benefits of purity, and the dangers of
+impure operators like \scheme|conda| and \scheme|condu|.  It was Oleg
+who had the incredibly clever idea of implementing a relational
+arithmetic system inspired by hardware half-adders and full-adders
+(see Chapter~\ref{arithchapter}).  Oleg has also had a tremendous
+influence on the development and evolution of miniKanren and its
+predecessor, Kanren.
+
+Chung-chieh (Ken) Shan has also greatly influenced the evolution, and
+especially the implementation, of miniKanren.  Much of the brevity and
+elegance of the core miniKanren implementation in
+Chapter~\ref{mkimplchapter} is due to Ken, who designed the critical
+\scheme|case-inf| macro.
+
+Some of the ideas, implementation code, and example programs in this
+dissertation were first presented, often in a slightly different form,
+in {\em The Reasoned Schemer}~\cite{trs}.  Chapter~\ref{arithchapter}
+is based on chapters seven and eight of {\em The Reasoned Schemer}
+and, to a lesser extent,
+\citet{conf/flops/KiselyovBFS08}. Chapters~\ref{akchapter} and
+\ref{akimplchapter} are adapted from~\citet{alphamk}.
+Chapter~\ref{alphatapchapter} is adapted
+from~\citet{DBLP:conf/iclp/NearBF08}.  A paper containing the contents
+of Chapter~\ref{fernschapter} and the nestable engines code in
+Appendix~\ref{nestable-engines} will be presented at Mitch Wand's
+Festschrift.  Many thanks to all of my coauthors.  Please see the
+acknowledgments sections of these papers for additional credits.
+
+The first tabling implementation for miniKanren was designed by the
+author and Ramana Kumar, and inspired by the Dynamic Reordering of
+Alternatives (DRA) approach to
+tabling~\cite{dra09,simpleimplementingtabling}.
+Ramana implemented the design, with debugging assistance from the
+author.  The tabling implementation presented in Chapter~\ref{tablingchapter}
+is a slightly modified version of Ramana's second, and improved,
+tabling implementation.  Most importantly, the new implementation is
+based on streams rather than success and failure continuations, which
+means answers are produced in the same order as in the core miniKanren
+implementation of Chapter~\ref{mkimplchapter}.
+
+The nominal unifier using triangular substitutions in
+section~\ref{triangularsection} is due to Joe Near.  Ramana Kumar
+has implemented a faster but very different triangular unifier.
+
+As described in section~\ref{walkexpensive}, Abdulaziz Ghuloum, David
+Bender, and Lindsey Kuper have explored which purely functional data
+structures are best for representing triangular substitutions.
+
+The \scheme|pmatch| pattern-matching macro in Appendix~\ref{pmatch}
+was written by Oleg Kiselyov.  The \scheme|matche| and
+\scheme|lambdae| pattern-matching macros in Appendix~\ref{matche} were
+originally designed by the author and implemented by Ramana Kumar with
+the help of Dan Friedman.  Andy Keep, Michael Adams, and Lindsey Kuper
+worked with us to implement an optimized version of \scheme|matche|
+and \scheme|lambdae|, which will be presented at the 2009 Scheme
+Workshop.
+
+Visits to Bloomington from Christian Urban, Matt Lakin, and Gopal
+Gupta greatly aided my research.  I also benefited from the 3rd
+International Compulog/ALP Summer School on Logic Programming and
+Computational Logic at New Mexico State University, organized by
+Enrico Pontelli, Inna Pivkina, and Son Cao Tran.  I enjoyed many
+stimulating conversations with visiting scholars Juliana Vizzotto,
+Katja Grace, Dave Herman, and Sourav Mukherjee.
+
+Indiana University's PL Wonks lecture series, organized by Roshan
+James, has been most stimulating.  I thank Roshan, Michael Adams, Andy
+Keep, Jeremiah Willcock, Ron Garcia, Jeremy Siek, Steve Ganz, Larisse
+Voufo, and all the other Wonks for many interesting conversations
+about programming languages.  The PL Wonks also benefited from special
+visits by Jeffrey Siskind and Robby Findler.  I look forward to a
+relaxing conversation with Olivier Danvy that does not require either
+of us to use our first-responder skills.
+
+For the past eleven semesters I have had the great pleasure of being
+the associate instructor for Indiana University's undergraduate (C311)
+and graduate (B521) introductory programming languages courses, under
+the enthusiastic leadership of Dan Friedman.  The material in this
+dissertation was greatly improved by the comments and corrections of
+our students.  I am grateful to you all, especially those former
+students who have conducted summer research with us: Dave Bender,
+Jordan Brown, Adam Foltzer, Adam Hinz, Andy Keep, Jiho Kim, Ramana
+Kumar, Lindsey Kuper, Micah Linnemeier, and Joe Near.
+
+Special thanks goes to former C311 student Jeremiah Penery, who
+discovered and corrected a subtle error in the definition of
+\scheme|logo| from the first printing of {\em The Reasoned Schemer}.
+
+Dan and I have had the great fortune to work with exceptional graduate
+and undergraduate associate instructors: David Mack, Alex Platte, Kyle
+Blocher, Joe Near, Ramana Kumar, and Lindsey Kuper.  Their hard
+work has made C311 and B521 such a success.  Joe and Ramana also read
+the final draft of this dissertation, and provided many insightful
+comments and corrections---thank you!
+
+I learned a great deal from teaching the honors section of IU's
+introductory programming course (C211) under supreme Scheme hacker
+Kent Dybvig.  Several years later I had the great pleasure of teaching
+C211 with another Scheme master, Aziz Ghuloum, as my associate
+instructor.  Every teacher should be so lucky.
+
+I thank Olin Shivers for writing an exemplary dissertation, the
+structure and organization of which I shamelessly ripped off.  Once
+again I relied on Dorai Sitaram's Scheme typesetting program, S\LaTeX.
+
+Whenever I was floundering in grad school Mitch Wand seemed to
+magically appear, pulling me aside to see how I was doing, and
+offering much appreciated advice and encouragement.  Although I did
+not always follow his advice (to my detriment, I am sure), I will
+always be grateful for his support.
+
+In addition to sharing his teaching and programming expertise, Kent
+Dybvig also offered invaluable advice about navigating the pitfalls of
+grad school.  I didn't heed all of Kent's advice, though I learned to
+pay special attention to anything following the catchphrase, ``You'll
+be committing academic suicide.''
+
+Lucy Battersby, Rob Henderson, and the rest of the Indiana University
+Computer Science Department staff provided expert help and an
+outstanding work environment.
+
+The friendly staff of the east-side Bloomington Quiznos, Sunny Bal,
+Kae Lunde, Caitlyn Muncy, Alisha Findley, Tylla Carlisle, and Meagan
+Perry, kept me rolling in veggie subs and ``om-nom-nom-nom''-worthy
+cookies.
+
+Caitlin Coar, Cortney Packett, and Alisha Stout, formerly of Cold
+Stone Creamery, supplied me with delicious and nourishing PB\&C
+milkshakes.
+
+I wrote most of this dissertation at the east-side Starbucks in
+Bloomington, where the generous, hilarious, and slightly-unhinged
+baristas provided a tasty setting for extended writing sessions.  Many
+thanks to:
+
+\begin{itemize}
+\item Amanda Buck for all the fish stories;
+\item Andrea Jerabek for always giving me a hard time;
+\item Ben Canary for inventing the infamous and delectable ``Christmas Cookie'';
+\item Brian Ibison for adoring Olivia Munn;
+\item Christina Liwski for never giving me a hard time;
+\item Ciera Brannon for not believing in cells (\emph{No cells, no mercy!});
+\item Eric ``Big Eric'' Martin for pointing out that UFO over Starbucks;
+\item Erin Dobias for being a smart chick;
+\item Gabby Baehl for living up to her first name;
+\item Megan Traxinger-James for putting up with Eric and Brian;
+\item and Phil Wood for his Twitter-powered news reports.
+\end{itemize}
+
+\noindent I also thank former baristas Jessica Fugate and Shannon
+Pilrose for hanging out with me when I should have been writing.
+
+% Chili's ???  Marnie, Todd, Sara,
+
+I've been fortunate to have made many close friends in Bloomington.
+In particular, Aziz Ghuloum, Larisse Voufo, Ron Garcia, Suzanna Crage,
+Andy Keep, Lindsey Kuper, Lindsay and Ahmed Hamed, and Anne and Mike
+Faber helped keep me sane while I wrote this dissertation.
+
+Marc Muher visited Bloomington for Dig Dug \emph{battle royale}.
+Leslie Cuevas helped keep Jennifer Fitzgerald in line, while Ada
+Brunstein offered end game encouragement.  As always, my childhood
+friends Mike, Daryl, and Bobby helped relieve the tension with the
+occasional game.
+
+It has been my honor to know the Miller family for many years, and am
+grateful for their friendship.
+
+Cisco Nochera, former director of Camp Greentop, has been my friend
+and mentor for almost two decades.
+
+During the spring of 2006 I visited Chile for a week, along with my
+brother Brian and my sister-in-law Claudia.  Claudia's parents, Hugo
+D\'{i}az and Nancy Zu\~{n}iga de D\'{i}az, warmly welcomed us to their
+home in the beautiful countryside on the outskirts of Casablanca,
+Chile.  I thank them for their never-ending hospitality and goodwill.
+
+I have had many incredible teachers in my life, but a few stand out.
+My absolutely amazing 11$^{th}$ grade Spanish teacher, Tom Rahauser,
+taught me to never fear Se\~{n}or Subjunctivo.  Richard Saenz's class
+on special relatively completely blew my mind.  Tom Anastasio taught
+me LISP, cleverly disguised as C.  Alan Sherman prepared me for
+graduate school.  Dan Friedman taught me that you don't understand
+your code until it fits on a 3x5 card.

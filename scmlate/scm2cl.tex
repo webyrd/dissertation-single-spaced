@@ -1,0 +1,122 @@
+\input tex2page
+\input plainsection
+
+\let\TZPtexlayout 0
+\let\n\noindent
+
+\ifx\shipout\totheWeb
+\def\evalsto{=>}
+\else
+\def\evalsto{\leavevmode\hbox{$\Rightarrow$}}
+\fi
+
+
+\scmkeyword{function}
+
+\title{scm2cl}
+
+%\ignorenextinputtimestamp
+
+\centerline{\urlh{scmxlate.tar.bz2}{\ifx\shipout\totheWeb
+Download {\tt scmxlate}\fi Version 20090410}}
+\centerline{({\tt scm2cl} is part of the \urlh{scmxlate.html}{scmxlate} distribution)}
+
+\centerline{\urlh{../index.html}{Dorai Sitaram}}
+
+\medskip
+
+\p{scm2cl} is a Common Lisp
+program that converts Scheme
+code to Common Lisp.  Its goal is to remove the tedium of
+transcribing a large Scheme file into CL, not to avoid human
+intervention altogether.  You may have to do some
+hand-tuning --- \p{scm2cl} will assist you here too.
+
+\p{scm2cl} understands R5RS Scheme, including the
+high-level macros (\q{define-syntax}, \q{let-syntax},
+and \q{letrec-syntax}), plus some common Scheme
+extensions, viz, \q{andmap}, \q{append!},
+\q{call-with-input-string},
+\q{call-with-output-string}, \q{delete-file}, \q{exit},
+\q{file-exists?}, %\q{file-or-directory-modify-seconds},
+\q{fluid-let}, \q{flush-output}, \q{getenv}, \q{get-output-string},
+\q{open-input-string}, \q{open-output-string},
+\q{ormap}, \q{read-line}, \q{reverse!},
+\q{string-index}, \q{string-reverse-index}, \q{system}.
+
+\section{Usage}
+
+With some Common Lisp dialects, you can call \p{scm2cl.cl}
+on the operating-system command-line, with the Scheme file
+to be converted as argument:
+
+\verb{
+scm2cl.cl scmfile.scm
+}
+
+\n This produces the CL file in \p{scmfile.cl}.
+
+If this is not possible, you may load \p{scm2cl.cl} into
+your Common Lisp and invoke the function \q{scheme-to-cl}.
+Eg,
+
+\scm{
+(load "scm2cl.cl")
+(scheme-to-cl "scmfile.scm")
+}
+
+\section{Human Intervention}
+
+\subsection{\q{funcall} and \q{function}}
+
+\p{scm2cl} is good at inserting \q{funcall} and \q{function}
+(aka \q{#'}) where needed, but not perfect.  It will,
+however, draw your attention to code locations where a
+\q{funcall} {\it may\/} be needed.  \p{scm2cl} will not
+miss any of these problem spots, so you don't have to hunt
+for \q{funcall} locations on your own.
+
+No similar signaling is offered for potential
+\q{#'} locations.
+(The reason is that this would lead to too many signals for
+\q{#'}, the vast majority of them being red herrings.
+Detecting \q{funcall} is less noisy, but still not perfect
+--- which is why \p{scm2cl} suggests passively instead of
+inserting actively.)
+
+\subsection{Some additional definitions}
+
+The CL file produced by \p{scm2cl} may use some of the
+procedures defined in the file
+\p{scheme-procs.cl}.  (\p{scheme-procs.cl}  contains some Scheme-like
+procedure definitions for CL.)  At the end of the
+conversion, \p{scm2cl} will give you the exact list of
+Scheme procedures from
+\p{scheme-procs.cl} actually used.  You will need to
+incorporate these procedure definitions into the
+converted code.  How you do it is up to your
+convenience.
+
+\subsection{Caveats}
+
+Only ``escape'' continuations are allowed for
+\q{call-with-current-continuation}.
+
+``Named'' \q{let}s whose names begin with the substring
+\q{"loop"} are converted into iterative CL loops.
+\p{scm2cl} assumes that such named \q{let}s were intended to
+write iterative (``tail-recursive'') loops, and translates
+accordingly.  This will cause error if the \q{let} wasn't so
+intended.
+
+Named \q{let}s with names that do not begin with \q{loop}
+are converted using CL \q{labels}.
+
+%\section{References}
+%
+%\nocite{clhs,cltl}
+%
+%\bibliographystyle{plain}
+%\bibliography{scm2cl}
+
+\bye

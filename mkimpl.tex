@@ -1,0 +1,707 @@
+\chapter{Implementation I:  Core miniKanren}\label{mkimplchapter}
+
+In this chapter we present the implementation of the core miniKanren
+operators described in Chapter~\ref{mkintrochapter}.  Later chapters
+describe additions or modifications to this core implementation; unless
+otherwise stated, these later chapters only present the definitions
+that differ from those of the core implementation.
+
+This chapter is organized as follows.  In section~\ref{mkunif} we
+describe our representation of variables and substitutions, and define
+the \scheme|unify| function, which uses the \scheme|walk| function to
+look up variables in a triangular substitution.
+Section~\ref{mkreification} presents our reification algorithm, which
+converts miniKanren terms into regular Scheme values without logic
+variables.  Finally, in section~\ref{goalconstructors}, we discuss
+miniKanren goals, which map substitutions to (potentially infinite)
+streams of substitutions.  We then define the core miniKanren goal
+constructors \scheme|==|, \scheme|exist|, and \scheme|conde|, along
+with the interface operator \scheme|run|.
+
+% miniKanren's implementation comprises three kinds of operators:
+% functions such as \scheme{unify} and \scheme{reify}, which take
+% substitutions explicitly; goal constructors \scheme{==},
+% \scheme{conde}, and \scheme{exist}, which take substitutions
+% implicitly; and the interface operator \scheme{run}.  We represent
+% substitutions as association lists associating variables with values.
+
+
+%\section{Unification}
+\section{Variables, Substitutions, and Unification}\label{mkunif}
+
+We represent logic variables as vectors of length one\footnote{R6RS
+  Scheme supports records, which arguably provide a better abstraction
+  for logic variables.  We use vectors for compatibility with R5RS
+  Scheme---one consequence is that vectors should not appear in
+  arguments passed to \scheme|unify|.}.
+
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define-syntax var
+  (syntax-rules ()
+    ((_ x) (vector x))))
+
+(define-syntax var?
+  (syntax-rules ()
+    ((_ x) (vector? x))))
+\end{schemedisplay}
+
+\noindent The single argument to the \scheme|var| constructor is a symbol
+representing the name of the variable\footnote{This name is useful for
+  debugging.  More importantly, we must ensure that the vectors
+  created with \scheme|var| are non-empty. This is because we use
+  Scheme's \scheme|eq?| test to distinguish between variables, and
+  \scheme|eq?| is not guaranteed to distinguish between two non-empty
+  vectors.}.
+
+A \emph{substitution} \scheme|s| is a mapping between logic
+variables and values (also called \emph{terms}).  We represent a
+substitution as an \emph{association list}, which is a list of pairs
+associating vectors to values; we construct an empty substitution using \scheme|empty-s|
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define empty-s '())
+\end{schemedisplay}
+
+\noindent and extend an existing substitution \scheme|s| with a new
+association between a variable \scheme|x| and a value \scheme|v| using
+\scheme|ext-s-no-check|
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define ext-s-no-check (lambda (x v s) (cons `(,x . ,v) s)))
+\end{schemedisplay}
+
+\noindent If \scheme|x|, \scheme|y|, and \scheme|z| are logic
+variables constructed using \scheme|var|, then the association list
+\mbox{\scheme|`((,x . 5) (,y . #t))|} represents a substitution that
+associates \scheme|x| with \scheme|5|, \scheme|y| with \scheme|#t|,
+and leaves \scheme|z| unassociated.
+
+The right-hand-side (\emph{rhs}) of an association may itself be a
+logic variable.  In the substitution \mbox{\scheme|`((,y . 5) (,x
+  . ,y))|}, \scheme|x| is associated with \scheme|y|, which in turn is
+associated with \scheme|5|.  Thus, both \scheme|x| and \scheme|y| are
+associated with \scheme|5|.  This representation is known as a
+``triangular'' substitution, as opposed to the more common
+``idempotent'' representation\footnote{In an \emph{idempotent}
+  substitution, a variable that appears on the left-hand-side
+  of an association never appears on the rhs.} of \mbox{\scheme|`((,y . 5) (,x . 5))|}.  
+(See \citet{FBaade01} for more on substitutions.)
+One advantage of triangular substitutions is that they can be easily
+extended using \scheme|cons|, without side-effecting or rebuilding the
+substitution.  This lack of side-effects permits sharing of
+substitutions, while substitution extension remains a constant-time
+operation.  This sharing, in turn, gives us backtracking for free---we
+just ``forget'' irrelevant associations by using an older version of
+the substitution, which is always a suffix of the current
+substitution.
+
+Triangular substitution representation is well-suited for functional
+implementations of logic programming, since it allows sharing of
+substitutions.  Unfortunately, there are several significant
+disadvantages to the triangular representation.  The major
+disadvantage is that variable lookup is both more complicated and more
+expensive\footnote{In Chapter~\ref{walkimpl} we will explore several
+  ways to improve the efficiency of variable lookup when using
+  triangular substitutions.} than with idempotent substitutions.
+With idempotent substitutions, variable lookup can be defined as
+follows,
+where \scheme|rhs|\footnote{\scheme|rhs| is just defined to
+  be \scheme|cdr|.} returns the right-hand-side of an association.
+
+\newpage
+
+%\schemedisplayspace
+\begin{schemedisplay}
+(define lookup
+  (lambda (v s)
+    (cond
+      ((var? v)
+       (let ((a (assq v s)))
+         (cond
+           (a (rhs a))
+           (else v))))
+      (else v))))
+\end{schemedisplay}
+
+\noindent 
+If \scheme|v| is an unassociated variable, or a non-variable term,
+\scheme|lookup|$\footnote{For fans of syntactic sugar,
+this definition can be shortened using \scheme|cond|'s arrow notation.
+
+\begin{schemedisplay}
+(define lookup
+  (lambda (v s)
+    (cond
+      ((and (var? v) (assq v s)) => rhs)
+      (else v))))
+\end{schemedisplay}}$ just returns \scheme|v|.
+
+When looking up a variable in a triangular substitution, we must
+instead use the more complicated \scheme|walk| function.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define walk
+  (lambda (v s)
+    (cond
+      ((var? v)
+       (let ((a (assq v s)))
+         (cond
+           (a (walk (rhs a) s))
+           (else v))))
+      (else v))))
+\end{schemedisplay}
+
+If, when walking a variable \scheme|x| in a substitution \scheme|s|,
+we find that \scheme|x| is bound to another variable \scheme|y|, we
+must then walk \scheme|y| in the original substitution \scheme|s|.
+\scheme|walk| is therefore not primitive recursive~\cite{Kleene:meta}---in fact, 
+\scheme|walk| can diverge if used
+on a substitution containing a circularity; for example, when walking
+\scheme|x| in either the substitution \mbox{\scheme|`((,x . ,x))|} or
+\mbox{\scheme|`((,y . ,x) (,x . ,y))|}.  miniKanren's unification
+function, \scheme|unify|, ensures that these kinds of circularities
+are never introduced into a substitution.  In addition, \scheme|unify|
+prohibits circularities of the form \mbox{\scheme|`((,x . (,x)))|}
+from being added to the substitution.  Although this circularity will
+not cause \scheme|walk| to diverge, it can cause divergence during
+reification (described in section~\ref{mkreification}).  To prevent
+circularities from being introduced, we extend the substitution using
+\scheme|ext-s| rather than \scheme|ext-s-no-check|.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define ext-s
+  (lambda (x v s)                                   
+    (cond
+      ((occurs-check x v s) #f)
+      (else (ext-s-no-check x v s)))))
+
+(define occurs-check
+  (lambda (x v s)
+    (let ((v (walk v s)))
+      (cond
+        ((var? v) (eq? v x))
+        ((pair? v) (or (occurs-check x (car v) s) (occurs-check x (cdr v) s)))
+        (else #f)))))
+\end{schemedisplay}
+
+\noindent \scheme|ext-s| calls the \scheme|occurs-check| predicate, which
+returns \scheme|#t| if adding an association between \scheme|x| and
+\scheme|v| would introduce a circularity.  If so, \scheme|ext-s|
+returns \scheme|#f| instead of an extended substitution, indicating
+that unification has failed.
+
+\scheme|unify| unifies two terms \scheme|u| and \scheme|v| with
+respect to a substitution \scheme|s|, returning a (potentially
+extended) substitution if unification succeeds, and returning
+\scheme|#f| if unification fails or would introduce a
+circularity\footnote{Observe that \scheme|unify| calls
+\scheme|ext-s-no-check| rather than \scheme|ext-s| if \scheme|u| and
+\scheme|v| are distinct unassociated variables, thereby avoiding an
+unnecessary call to \scheme|walk| from inside
+\scheme|occurs-check|.}.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define unify
+  (lambda (u v s)
+    (let ((u (walk u s))
+          (v (walk v s)))
+      (cond
+        ((eq? u v) s)
+        ((var? u) 
+         (cond
+           ((var? v) (ext-s-no-check u v s))
+           (else (ext-s u v s))))
+        ((var? v) (ext-s v u s))
+        ((and (pair? u) (pair? v))
+         (let ((s (unify (car u) (car v) s)))
+           (and s (unify (cdr u) (cdr v) s))))
+        ((equal? u v) s)
+        (else #f)))))
+\end{schemedisplay}
+
+The call to \scheme|occurs-check| from within \scheme|ext-s| is
+potentially expensive, since it must perform a complete tree walk on
+its second argument.  Therefore, we also define \scheme|unify-no-check|, which
+performs \emph{unsound} unification but is more efficient than
+\scheme|unify|\footnote{\citet{occurcheck} point out that, in
+  practice, omission of the occurs check is usually not a problem.
+  However, the type inferencer presented in
+  section~\ref{aktypeinf} requires sound unification to
+  prevent self-application from typechecking.}.
+
+\newpage
+
+%\schemedisplayspace
+\begin{schemedisplay}
+(define unify-no-check
+  (lambda (u v s)
+    (let ((u (walk u s))
+          (v (walk v s)))
+      (cond
+        ((eq? u v) s)
+        ((var? u) (ext-s-no-check u v s))
+        ((var? v) (ext-s-no-check v u s))
+        ((and (pair? u) (pair? v))
+         (let ((s (unify-no-check (car u) (car v) s)))
+           (and s (unify-no-check (cdr u) (cdr v) s))))
+        ((equal? u v) s)
+        (else #f)))))                                                    
+\end{schemedisplay}
+
+
+% \scheme{unify} is based on the triangular model of substitutions (See
+% Baader and Snyder \cite{FBaade01}, for
+% example.). Vectors should not occur in arguments passed to \scheme{unify},
+% since we represent variables as vectors.
+
+
+\section{Reification}\label{mkreification}
+\enlargethispage{1em}
+
+\emph{Reification} is the process of turning a miniKanren term into a
+Scheme value that does not contain logic variables.
+The \scheme{reify} function takes a substitution \scheme|s| and an arbitrary value \scheme|v|,
+perhaps containing variables, and returns the reified value of \scheme|v|. 
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define reify
+  (lambda (v s)
+    (let ((v (walk* v s)))
+      (walk* v (reify-s v empty-s)))))
+\end{schemedisplay}
+
+\noindent For example, \mbox{\scheme|(reify `(5 ,x (#t ,y ,x) ,z) empty-s)|}
+returns \mbox{\scheme|`(5 _.0 (#t _.1 _.0) _.2)|}.
+
+% \scheme{reify} first uses \scheme{walk*}
+% to apply the substitution to a value and then methodically replaces
+% any variables with reified names.
+
+\scheme|reify| uses \scheme|walk*| to deeply walk a term with respect
+to a substitution.  If \scheme|s| is the substitution
+\mbox{\scheme|`((,z . 6) (,y . 5) (,x . (,y ,z)))|}, then
+\mbox{\scheme|(walk x s)|} returns \mbox{\scheme|`(,y ,z)|} while
+\mbox{\scheme|(walk* x s)|} returns \mbox{\scheme|`(5 6)|}\footnote{If \scheme|s| is idempotent, \scheme|walk*| is equivalent to \scheme|walk|.}.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define walk*
+  (lambda (v s)
+    (let ((v (walk v s)))
+      (cond
+        ((var? v) v)
+        ((pair? v) (cons (walk* (car v) s) (walk* (cdr v) s)))
+        (else v)))))
+\end{schemedisplay}
+
+\scheme|reify| also calls \scheme|reify-s|, which is the heart of the
+reification algorithm. 
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define reify-s
+  (lambda (v s)
+    (let ((v (walk v s)))
+      (cond
+        ((var? v) (ext-s v (reify-name (length s)) s))
+        ((pair? v) (reify-s (cdr v) (reify-s (car v) s)))
+        (else s)))))
+\end{schemedisplay}
+
+\noindent \mbox{\scheme|reify-s|} takes a \scheme|walk*|ed term
+as its first argument; its second argument starts out as
+\scheme|empty-s|.  The result of invoking \scheme|reify-s| is a
+\emph{reified name} substitution, associating logic variables to
+distinct symbols of the form $\__{_{n}}$.
+
+\scheme|reify-s| in turn relies on \scheme|reify-name| to produce the actual symbol.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define reify-name
+  (lambda (n)
+    (string->symbol (string-append "_." (number->string n)))))
+\end{schemedisplay}
+
+\section{Goals and Goal Constructors}\label{goalconstructors}
+
+A goal \scheme{g} is a function that maps a substitution~\scheme{s} to
+an ordered sequence of zero or more values---these values are almost
+always substitutions.  (For clarity, we notate \scheme{lambda} as
+\scheme{lambdag@} when creating such a function~\scheme{g}.)  Because
+the sequence of values may be infinite, we represent it not as a list
+but as a special kind of stream, \mbox{\scheme|a-inf|}.
+
+Such streams contain either zero, one, or more values
+\cite{backtracking,CombinatorsforLP%,hinze2000,Wadler85,conf/icfp/WandV04
+}.  We use
+\mbox{\scheme|(mzero)|} to represent the empty stream of
+values. If \scheme{a} is a value, then
+\mbox{\scheme|(unit a)|} represents the stream containing
+just \scheme{a}.  To represent a non-empty stream
+we use \mbox{\scheme|(choice a f)|}, where \scheme{a}
+is the first value in the stream, and where \scheme{f} is a
+function of zero arguments.  (For clarity, we notate \scheme{lambda}
+as \scheme{lambdaf@} when creating such a function~\scheme{f}.)
+Invoking the function \scheme{f} produces the remainder of the
+stream.
+\mbox{\scheme|(unit a)|} can be represented as
+\mbox{\scheme|(choice a (lambdaf@ () (mzero)))|}, but the
+\scheme{unit} constructor avoids the cost of building and taking apart
+pairs and invoking functions, since many goals return 
+only singleton streams.
+To represent an incomplete stream, we create an \scheme{f} using \mbox{\scheme|(inc e)|}, 
+where \scheme{e} is an \emph{expression} that evaluates to an \mbox{\scheme|a-inf|}.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define-syntax mzero 
+  (syntax-rules () 
+    ((_) #f)))
+
+(define-syntax unit
+  (syntax-rules ()
+    ((_ a) a)))
+
+(define-syntax choice
+  (syntax-rules ()
+    ((_ a f) (cons a f))))
+
+(define-syntax inc
+  (syntax-rules ()
+    ((_ e) (lambdaf@ () e))))
+\end{schemedisplay}
+
+To ensure that streams produced by these four \mbox{\scheme|a-inf|}
+constructors can be distinguished, 
+we assume that a singleton \mbox{\scheme|a-inf|} is
+never \schemeresult{#f}, a function, or a pair whose \scheme{cdr} is a
+function.  To discriminate among these four cases, we define
+\mbox{\scheme|case-inf|}.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define-syntax case-inf
+  (syntax-rules ()
+    ((_ e (() e0) ((f^) e1) ((a^) e2) ((a f) e3))
+     (let ((a-inf e))
+       (cond
+         ((not a-inf) e0)
+         ((procedure? a-inf)  (let ((f^ a-inf)) e1))
+         ((and (pair? a-inf) (procedure? (cdr a-inf)))
+          (let ((a (car a-inf)) (f (cdr a-inf))) e3))
+         (else (let ((a^ a-inf)) e2)))))))
+\end{schemedisplay}
+
+The simplest goal constructor is \scheme{==}, which returns either a
+singleton stream or an empty stream, depending on whether the
+arguments unify with the implicit substitution.  As with the other
+goal constructors, \scheme{==} always expands to a goal, even if an
+argument diverges.  % We avoid the use of \scheme{unit} and
+% \scheme{mzero} in the definition of \scheme{==}, since \scheme{unify}
+% returns either a substitution (a singleton
+% stream) or \scheme{#f} (our representation of the empty stream).
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define-syntax ==
+  (syntax-rules ()
+    ((_ u v)
+     (lambdag@ (a)
+       (cond
+         ((unify u v a) => (lambda (a) (unit a)))
+         (else (mzero)))))))
+\end{schemedisplay}
+
+We can also define \scheme|==-no-check|, which performs unsound
+unification without the occurs check.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define-syntax ==-no-check
+  (syntax-rules ()
+    ((_ u v) 
+     (lambdag@ (a)
+       (cond
+         ((unify-no-check u v a) => (lambda (a) (unit a)))
+         (else (mzero)))))))
+\end{schemedisplay}
+
+\scheme{conde} is a goal constructor that combines successive
+\scheme{conde}-clauses using \scheme{mplus*}.  To avoid unwanted
+divergence, we treat the \scheme{conde}-clauses as a single
+\scheme{inc} stream.  Also, we use the same implicit substitution
+for each \scheme{conde}-clause.  \scheme{mplus*} relies on
+\scheme{mplus}, which takes an \scheme{a-inf} and an \scheme{f}
+and combines them (a kind of \scheme{append}).  Using
+\scheme{inc}, however, allows an argument to \emph{become} a
+stream, thus leading to a relative fairness because all of the
+stream values will be interleaved.  
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define-syntax conde
+  (syntax-rules ()
+    ((_ (g0 g ...) (g1 g^ ...) ...)
+     (lambdag@ (a) 
+       (inc 
+         (mplus* (bind* (g0 a) g ...) (bind* (g1 a) g^ ...) ...))))))
+\end{schemedisplay}
+
+\begin{schemedisplay}
+(define-syntax mplus*
+  (syntax-rules ()
+    ((_ e) e)
+    ((_ e0 e ...) (mplus e0 (lambdaf@ () (mplus* e ...))))))
+
+(define mplus
+  (lambda (a-inf f)
+    (case-inf a-inf
+      (() (f))
+      ((f^) (inc (mplus (f) f^)))
+      ((a) (choice a f))
+      ((a f^) (choice a (lambdaf@ () (mplus (f) f^)))))))
+\end{schemedisplay}
+\vspace{4.3pt}
+\noindent If the body of \scheme{conde} were just the \scheme{mplus*}
+expression, then the \scheme{inc} clauses of \scheme{mplus},
+\scheme{bind}, and \scheme{take} (defined below) would never be
+reached, and there would be no interleaving of values.
+
+\scheme{exist} is a goal
+constructor that first lexically binds its variables (created by
+\scheme{var}) and then, using \scheme{bind*}, combines successive goals.
+\scheme{bind*} is short-circuiting: since the empty stream
+\mbox{\scheme|(mzero)|} is represented by \mbox{\scheme|#f|}, any
+failed goal causes \scheme{bind*} to immediately return \scheme{#f}.
+\scheme{bind*} relies on \scheme{bind} \cite{moggi91notions,Wadler92},
+which applies the goal \scheme{g} to each element in 
+\scheme{a-inf}.  These \scheme{a-inf}'s are then merged together with
+\scheme{mplus} yielding an \scheme{a-inf}.  (\scheme{bind} is
+similar to Lisp's \scheme{mapcan}, with the arguments reversed.)
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define-syntax exist
+  (syntax-rules ()
+    ((_ (x ...) g0 g ...)
+     (lambdag@ (a)
+       (inc
+         (let ((x (var 'x)) ...)
+           (bind* (g0 a) g ...)))))))
+\end{schemedisplay}
+
+\begin{schemedisplay}
+(define-syntax bind*
+  (syntax-rules ()
+    ((_ e) e)
+    ((_ e g0 g ...) (bind* (bind e g0) g ...))))
+
+(define bind
+  (lambda (a-inf g)
+    (case-inf a-inf
+      (() (mzero))
+      ((f) (inc (bind (f) g)))
+      ((a) (g a))
+      ((a f) (mplus (g a) (lambdaf@ () (bind (f) g)))))))
+\end{schemedisplay}
+
+To minimize heap allocation we create a single
+\scheme{lambdag@} closure for each goal constructor,
+and we define \scheme{bind*} and \scheme{mplus*} to
+manage sequences, not lists, of goal-like expressions.  
+
+\scheme{run}, and therefore \scheme{take}, converts an \scheme{f} to a
+list.  
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define-syntax run
+  (syntax-rules ()
+    ((_ n (x) g0 g ...)
+     (take n
+       (lambdaf@ ()
+         ((exist (x) g0 g ... 
+            (lambdag@ (a)
+              (cons (reify x a) '())))
+          empty-s))))))
+
+(define take
+  (lambda (n f)
+    (if (and n (zero? n)) 
+      '()
+      (case-inf (f)
+        (() '())
+        ((f) (take n f))
+        ((a) a)
+        ((a f) (cons (car a) (take (and n (- n 1)) f)))))))
+\end{schemedisplay}
+
+\noindent
+We wrap the result of \mbox{\scheme|(reify x s)|} in a list 
+so that the \scheme{case-inf} in \scheme{take} can distinguish a
+singleton \scheme{a-inf} from the other three \scheme{a-inf} types.
+We could simplify \scheme{run} by using \scheme{var} to create
+the unassociated variable \scheme{x}, but we prefer that \scheme{exist} be the
+only operator that calls \scheme{var}\footnote{This becomes important in 
+Chapter~\ref{walkimpl}, when we redefine the way \scheme|exist| uses \scheme|var|.}.
+If the first argument to \scheme{take} is \scheme{#f}, we get the
+behavior of \scheme{run*}.  It is trivial to write a read-eval-print
+loop that uses \scheme{run*}'s interface by redefining \scheme{take}.
+
+\section{Impure Operators}
+\enlargethispage{1em}
+
+We conclude this chapter by defining the impure operators introduced
+in section~\ref{impureoperatorssection}: \scheme{project}, which can
+be used to access the values of variables, \scheme{conda} and
+\scheme{condu}, which can be used to prune the search tree of a
+program, and \scheme|copy-termo|, which copies a term, consistently
+replacing unassociated logic variables with new variables.
+
+\scheme|project| applies the implicit substitution to zero or more
+lexical variables, rebinds those variables to the values returned, and
+then evaluates the goal expressions in its body.  The body of a
+\scheme|project| typically includes at least one \scheme|begin|
+expression---any expression is a goal expression if its value is a
+miniKanren goal.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define-syntax project 
+  (syntax-rules ()                                                
+    ((_ (x ...) g g* ...)  
+     (lambdag@ (s)
+       (let ((x (walk* x s)) ...)
+         ((exist () g g* ...) s))))))
+\end{schemedisplay}
+
+
+\scheme|copy-termo| creates a copy of its first argument, consistently
+replacing unassociated variables with new logic variables in the copy.
+The term \scheme|u| is projected before copying, to avoid accidentally
+replacing associated variables with new variables.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define copy-termo
+  (lambda (u v)
+    (project (u)
+      (== (walk* u (build-s u '()) v))))
+
+(define build-s
+  (lambda (u s)
+    (cond
+      ((var? u) (if (assq u s) s (cons (cons u (var 'ignore)) s)))
+      ((pair? u) (build-s (cdr u) (build-s (car u) s)))
+      (else s))))
+\end{schemedisplay}
+
+Unlike \scheme{conde}, only one \scheme{conda}-clause or
+\scheme{condu}-clause can return an \scheme{a-inf}: the first clause
+whose first goal succeeds.  With \scheme{conda}, the entire stream
+returned by the first goal is passed to \scheme{bind*}.  With
+\scheme{condu}, a singleton stream is passed to \scheme{bind*}---this
+stream contains the first value of the stream returned by the first
+goal.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define-syntax conda
+  (syntax-rules ()
+    ((_ (g0 g ...) (g1 g^ ...) ...)
+     (lambdag@ (a)
+       (inc
+         (ifa ((g0 a) g ...)
+              ((g1 a) g^ ...) ...))))))
+
+(define-syntax condu
+  (syntax-rules ()
+    ((_ (g0 g ...) (g1 g^ ...) ...)
+     (lambdag@ (a)
+       (inc
+         (ifu ((g0 a) g ...)
+              ((g1 a) g^ ...) ...))))))
+
+(define-syntax ifa
+  (syntax-rules ()
+    ((_) (mzero))
+    ((_ (e g ...) b ...)
+     (let loop ((a-inf e))
+       (case-inf a-inf
+         (() (ifa b ...))
+         ((f) (inc (loop (f))))
+         ((a) (bind* a-inf g ...))
+         ((a f) (bind* a-inf g ...)))))))
+\end{schemedisplay}
+\newpage
+\begin{schemedisplay}  
+(define-syntax ifu
+  (syntax-rules ()
+    ((_) (mzero))
+    ((_ (e g ...) b ...)
+     (let loop ((a-inf e))
+       (case-inf a-inf
+         (() (ifu b ...))
+         ((f) (inc (loop (f))))
+         ((a) (bind* a-inf g ...))
+         ((a f) (bind* (unit a) g ...)))))))
+\end{schemedisplay}
+
+% Joe's defn for alphaleanTAP:
+
+% \begin{schemedisplay}
+% (define var
+%   (lambda (n)
+%     (make-var n '())))
+
+% (define copy-walk
+%   (lambda (v s)
+%     (cond
+%       ((var? v)
+%        (let ((a (assq v s)))
+%          (cond
+%            (a (copy-walk (cdr a) s))
+%            (else v))))
+%       (else v))))
+
+% (define copy-walk*
+%   (lambda (w s)
+%     (let ((v (copy-walk w s)))
+%       (cond
+%         ((var? v) v)
+%         ((pair? v)
+%          (cons
+%            (copy-walk* (car v) s)
+%            (copy-walk* (cdr v) s)))
+%         (else v)))))
+
+% (define refresh-s
+%   (lambda (v s)
+%     (let ((v (copy-walk v s)))
+%       (cond
+%         ((var? v)
+%          (cons (cons v (var 'copy)) s))
+%         ((pair? v) (refresh-s (cdr v)
+%                      (refresh-s (car v) s)))
+%         (else s)))))
+
+% (define copy-termo
+%   (lambda (t1 t2)
+%     (project (t1)
+%       (== (copy-walk* t1 (refresh-s t1 '())) t2))))
+% \end{schemedisplay}
+
+
+% [TODO explain that \scheme|var?| is a dirty operator--if we expose it
+% to the user, they can cause all manner of trouble.  \scheme|varo| is
+% the goal version of \scheme|var?| if we give the user \scheme|conda|
+% or \scheme|condu|, they can define \scheme|varo| on their own]

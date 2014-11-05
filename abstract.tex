@@ -1,0 +1,42 @@
+\chapter*{Abstract}
+
+%WILLIAM E. BYRD  \underline{Relational Programming in miniKanren: Techniques, Applications, and Implementations}
+
+\noindent The promise of logic programming is that programs can be
+written {\em relationally}, without distinguishing between input and
+output arguments.  Relational programs are remarkably flexible---for
+example, a relational type-inferencer also performs type checking and
+type inhabitation, while a relational theorem prover generates
+theorems as well as proofs and can even be used as a simple proof
+assistant.
+
+Unfortunately, writing relational programs is difficult, and requires
+many interesting and unusual tools and techniques.  For example, a
+relational interpreter for a subset of Scheme might use nominal
+unification to support variable binding and scope, Constraint Logic
+Programming over Finite Domains (CLP(FD)) to implement relational
+arithmetic, and tabling to improve termination behavior.
+
+In this dissertation I present {\em miniKanren}, a family of languages
+specifically designed for relational programming, and which supports a
+variety of relational idioms and techniques.  I show how miniKanren
+can be used to write interesting relational programs, including an
+extremely flexible lean tableau theorem prover and a novel
+constraint-free binary arithmetic system with strong termination
+guarantees.  I also present interesting and practical techniques used
+to implement miniKanren, including a nominal unifier that uses
+triangular rather than idempotent substitutions and a novel
+``walk''-based algorithm for variable lookup in triangular
+substitutions.
+
+The result of this research is a family of languages that supports a
+variety of relational idioms and techniques, making it feasible and
+useful to write interesting programs as relations.
+
+% \noindent [check abstracts of my papers]
+
+% \noindent [describe disparity between promise and reality of logic programming]
+
+% \noindent [brief explanation of and motivation for relational programming]
+
+% \noindent [describe the work this dissertation presents]

@@ -1,0 +1,1386 @@
+\chapter{Applications I:  Pure Binary Arithmetic}\label{arithchapter}
+
+[PLACEHOLDER]
+
+% [TODO I need to clean up this chapter. This paper this chapter is
+% based on presented the definitions in Prolog.  I've translated the
+% code to miniKanren, but much of the English still refers to Prolog's
+% SLD resolution strategy and incomplete, depth-first search.  I still
+% need to clean up this wording, since miniKanren uses a complete,
+% interleaving search strategy.  I also need to integrate the text from
+% the intro and conclusion sections into the rest of the chapter, and
+% the thesis intro and conclusion chapters, as appropriate]
+
+% %%% This could bite me when it comes to Slatex.  Better disable at end of this chapter.
+% %\DefineShortVerb{\|}
+
+% %\begin{abstract}
+% We present \emph{decidable} logic programs for addition, multiplication,
+% division with remainder, exponentiation, and logarithm with remainder over the
+% \emph{unbounded} domain of natural numbers.  Our predicates represent
+% \emph{relations} without mode restrictions or annotations.  They are
+% fully decidable under the common, Depth-First-Search-like, SLD resolution strategy of
+% Prolog, or under an interleaving refinement of DFS\@, such as that used by miniKanren. We prove that
+% the evaluation of our arithmetic goals always terminates, given arguments 
+% that share no logic variables. Further, the (possibly infinite) set of
+% solutions for a goal denotes exactly the
+% corresponding mathematical relation. (For SLD without interleaving, and for
+% some infinite solution sets, only half of the relation's domain may
+% be covered.) We define predicates to handle unary (for illustration)
+% and binary representations of natural numbers, and prove termination
+% and completeness of these predicates. Our predicates are written in pure miniKanren, without
+% \scheme|conda|/\scheme|condu|, \scheme|varo|, \scheme|project|, or other non-logical operators.  The purity and
+% minimalism of our approach allows us to declare arithmetic in other
+% logic systems, such as Haskell type classes.
+% %\end{abstract}
+
+% %% \begin{keywords}
+% %% declarative arithmetic, binary, logic programming, termination
+% %% \end{keywords}
+
+
+% \section{Introduction}
+
+% Logic programming is said to be programming with relations, but
+% arithmetic is often dealt with in a non-relational, restricted way.
+% For example, Prolog's built-in \verb|is/2| predicate for evaluating
+% arithmetic expressions does not allow free (unbound) logic variables
+% in the expressions.  Whereas the goal \verb|Z is 6*7|
+% succeeds, binding \verb|42| to~\verb|Z|, the related goal \verb|42 is X*Y| is
+% considered erroneous because its multiplicands `are not sufficiently
+% instantiated.' Multiplication is not treated as a ternary relation
+% between multiplicands and the product because of mode restrictions on
+% the first two arguments.  Constraint logic programming (CLP) overcomes
+% this drawback to some extent~\cite{apt03principles}; for example,
+% disjunctive Datalog~\cite{Eiter:1997:DD} treats arithmetic
+% relationally.  Indeed, relational handling of arithmetic was one of
+% the motivations for CLP\@.  Unfortunately, this flexibility has a
+% price: CLP restricts the
+% arithmetic domain to be finite and changes the evaluation mode
+% of the logic programming system away from Kowalski's `predicate as
+% function' model~\cite{Kowalski74a}.
+
+% We present fully relational arithmetic on the \emph{unbounded} domain
+% of binary natural numbers for conventional
+% (SLD~\cite{lloyd:lp}, or SLD with
+% interleaving~\cite{backtracking}) logic
+% programming systems.  We define predicates for addition,
+% multiplication, division with remainder, and logarithm with
+% remainder. These predicates express the remaining arithmetic
+% operations, including subtraction and exponentiation.  These so-called base
+% predicates have \emph{no} mode restrictions or annotations 
+% on their arguments, and are
+% implemented in a \emph{pure} logic system without
+% \scheme|conda|/\scheme|condu|, \scheme|varo|, \scheme|project|, or negation. Furthermore,
+% each base predicate terminates under SLD evaluation (and re-evaluation, upon
+% backtracking), provided that the predicate's arguments share no
+% logic variables.  The stream of answers produced by (re-)evaluating
+% each arithmetic predicate under SLD with interleaving~\cite{backtracking}
+% covers exactly the corresponding
+% mathematical relation; under SLD resolution and some infinite domains,
+% only half of the relation is covered.
+
+
+% In particular, we define the following decidable predicates:
+% %
+% \begin{description}
+% \item[\scheme|addo|] such that \scheme{(addo x y z)} can be used to add two numbers
+% \scheme{x} and \scheme{y} to get \scheme{z}, to subtract \scheme{x} or \scheme{y} from \scheme{z}, to decompose
+% \scheme{z} into summands, or to compare two naturals. For example, 
+% we can determine that the triple $(1,2,3)$ is in the ternary addition
+% relation%
+% \footnote{We mean a relation that relates triples of numbers $(x,y,z)$
+% so that $x+y=z$.}
+% by
+% evaluating either the goal
+% \scheme{(addo bn1 bn2 bn3)}%
+% \footnote{\bn{3} means the representation of the binary numeral 3, which in
+%   miniKanren is encoded as \schemeresult{(l l)} (\S\ref{s:binary}).}
+% or the goal:
+
+% \schemedisplayspace
+
+% \begin{schemebox}
+% (exist (x y z)
+%   (addo x y z)
+%   (== bn1 x)
+%   (== bn2 y)
+%   (== bn3 z)).
+% \end{schemebox}
+
+% By evaluating \scheme{(addo x bn3 bn2)} we determine, also in finite
+% time, that the addition relation does \emph{not} include
+% \emph{any} triple $(n,3,2)$.
+
+% \item[\scheme|mulo|] such that \scheme{(mulo x y z)} can be used, inter alia, to
+%   multiply \scheme{x} and~\scheme{y}, to factor~\scheme{z},
+%   or to generate a stream of triples related
+%   by multiplication.
+
+% \item[\scheme|divo|] such that \scheme{(divo n m q r)}
+% succeeds if and only if $n = m \cdot q + r < m\cdot(q+1)$.%
+% \footnote{This equation implies that \scheme{divo} fails when $m$ is
+%   \bn0. Hence \scheme{mulo} is not reducible to \scheme{divo}. Besides,
+%   the former is simpler and is part of the implementation of the latter.}
+% For instance, the goal \scheme{(divo bn1 bn0 q r)} to relate the 
+% divisor zero to a non-zero dividend
+% fails instantly, without trying to enumerate all natural numbers.
+% The goal \scheme{(divo bn5 m bn1 r)} finds all 
+% numbers $m$ that divide 5, perhaps unevenly, 
+% with a quotient of 1. These values are $5$, $4$, and $3$. Finally,
+% \scheme{(divo bn5 m bn7 r)} fails in finite time rather than diverging.
+
+% \item[\scheme|logo|] such that \scheme{(logo n b q r)} succeeds if
+% and only if $n = b^q + r < b^{q+1}$.
+% We can use \scheme{logo} to perform exponentiation, find logarithms, 
+% and find $n$-th roots.
+% \end{description}
+% %
+% We prove that these base predicates are decidable and
+% that the arithmetic relations over natural numbers form their
+% universal model
+% \begin{comment}
+% \oleg{\url{http://www.inf.ed.ac.uk/teaching/courses/fpls/note15.pdf}}
+% \end{comment}
+% (see the
+% \emph{faithfulness} property introduced in~\S\ref{s:unary}).
+
+
+% \subsection{Challenges}
+
+% We require the predicates to be both effective and efficient.
+% First, the
+% evaluation of base arithmetic goals must terminate. Put
+% differently, it must be effectively computable whether a
+% tuple of naturals is included in or \emph{excluded} from a
+% base arithmetic relation (addition, multiplication, division with
+% remainder, and logarithm with remainder).
+% Further, these computations must finish
+% without taking an exponential amount of time or space with respect to
+% the `search depth' (corresponding, in the case of binary numbers, 
+% to the logarithm of the largest
+% number appearing in the computation). In other words, we wish to
+% maintain the efficiency of depth-first search (DFS) (or DFS with
+% interleaving \cite{backtracking,kanrensite}) of the and-or tree expressing the
+% solution space of our base goals.
+
+% The main challenge in defining our predicates is that the domains of
+% natural numbers, and of arithmetic relations in general, are
+% infinite---enumerating them is not an option. 
+% The incompleteness of DFS (used in SLD resolution) immediately
+% presents a problem. For example, assuming that \scheme{geno} is a predicate
+% that generates all (ground) natural numbers in sequence, one may be
+% tempted to implement \scheme{mulo} (separating the generation and testing for
+% clarity) as
+
+% \schemedisplayspace
+% \begin{schemedisplay}
+% (define mulo
+%   (lambda (x y z)
+%     (exist (a b c)
+%       (geno a)
+%       (== x a)
+%       (geno b)
+%       (== y b)
+%       (geno c)
+%       (== z c)
+%       (project (a b)
+%         (== (* a b) c)))))
+% \end{schemedisplay}
+
+% In addition to its obvious inefficiency, 
+% this implementation%
+% \footnote{Bra{\ss}el, Fischer, and Huch \citep{numbers-Curry} describe the drawbacks of this
+% residuation-based approach in functional logic programming.}
+% often diverges under
+% DFS\@. For example, evaluating \scheme{(mulo x y 1)}
+% instantiates \scheme{a} and \scheme{b} to \verb|0| and \scheme{c} to \verb|1|, causing the goal
+% \scheme{(== (* a b) c)} to fail; after backtracking into \scheme{(geno b)}, \scheme{mulo}
+% keeps forever instantiating \scheme{b} to
+% larger and larger positive numbers, each time resulting in failure of
+% the goal \scheme{(== (* 0 b) 1)}.
+
+% One may attempt to fix this problem by using a complete search
+% strategy, such as breadth-first search (BFS) or iteratively-deepening
+% DFS\@. Even ignoring efficiency concerns, this
+% implementation of \scheme{mulo} is still unacceptable: a complete search strategy
+% will find a solution \emph{if it exists}, but if no solution exists
+% the search will continue forever.  For example, although BFS finds the
+% instantiation of \scheme{y} that satisfies \mbox{\scheme|(mulo 1 y 2)|}, the goal
+% \mbox{\scheme|(mulo 2 y 1)|} still diverges. Thus we must devise a termination
+% criterion for \scheme{mulo}.
+
+% Devising a termination criterion may seem easy. For example, when
+% searching for \scheme{x} and \scheme{y} that satisfy the goal
+% \scheme{(mulo x y 5)}, we
+% only need to examine \scheme{x} and \scheme{y} values up to~$5$---since
+% the search space is finite, the evaluation of the goal
+% certainly terminates.  The problem arises when determining whether the
+% third argument in a specific use of \scheme{mulo} is instantiated to a
+% ground numeral.  This task is trivial if we use the `impure'
+% non-logical features provided by Prolog's reflection facilities, such
+% as the infamous \verb|var/1| predicate. Even if \verb|var/1| were absent from
+% Prolog, it could be emulated using cuts and negation. We
+% disavow such tools---we aim to implement our predicates in a pure
+% subset of Prolog, without cuts, reflection, or any way to distinguish
+% a logic variable. This aim for purity is a
+% challenge that in return makes our approach most
+% elucidating and extensible.
+
+% The final challenge is that the binary representation of a number
+% may not be structurally part of that of its successor.
+% For example, the binary numeral 111 (in decimal, 7)
+% is not structurally part of its successor 1000. This lack of
+% structural inclusion prevents straightforward structural recursion.
+
+
+% \subsection{Termination and Solvability}
+
+% These challenges make the arithmetic predicates tricky to code.
+% It is not obvious that the resulting predicates have the
+% claimed properties, in particular, that they terminate in all
+% modes. We therefore devote much of the paper to proofs. A typical
+% termination theorem we prove assures that evaluating or re-evaluating
+% \mbox{\scheme|(addo x y z)|} terminates, provided that the terms initially associated
+% with \scheme{x}, \scheme{y}, and \scheme{z} share no logic variables. Successive
+% re-evaluations of this goal recursively enumerate the stream of unique
+% triples $(x,y,z)$ of potentially non-ground terms whose denotation
+% (\S\ref{s:solution-sets-of-addition}) is the domain $\set{(u,v,w) \in x\times
+% y\times z : u+v=w}$.  Thus, membership and non-membership are
+% computable for base arithmetic relations.
+
+% We guarantee termination only for stand-alone base arithmetic goals but
+% not their conjunctions (see \S\ref{s:solution-set}). This
+% non-compositionality is expected, since conjunctions of arithmetic
+% goals can express Diophantine equations; were such conjunctions
+% guaranteed to terminate, we would be able to solve Hilbert's 10th
+% problem, which is undecidable~\cite{hilbertstenth}.  We also do not
+% guarantee termination if the goal's arguments share variables.  Such a
+% goal can be expressed by conjoining a sharing-free base goal and
+% equalities.
+
+% We proceed as follows.
+% In~\S\ref{s:unary} we define addition and multiplication predicates
+% for a \emph{unary} representation of natural numbers.  
+% We introduce solution sets, \S\ref{s:solution-set}, to carefully
+% establish termination for these predicates, laying a
+% foundation for our analysis of binary predicates.
+% In~\S\ref{s:binary} we introduce our representation of binary
+% numerals, and in \S\ref{s:addsub} and~\S\ref{s:mult}
+%  we define predicates for binary addition and
+% subtraction, and multiplication, respectively.
+% In~\S\ref{s:div-exp-log} we briefly describe our predicates 
+% for binary division, exponentiation, and logarithm.  For lack of
+% space, we relegate our pure Prolog implementation of exponentiation,
+% logarithm, and non\hyp interleaving binary multiplication to
+% the accompanying source
+% code,\footnote{\url{http://okmij.org/ftp/Prolog/Arithm/}}
+% along with additional proofs, tests, examples, and discussion.
+% We review related work in~\S\ref{s:related}, and
+% conclude in~\S\ref{s:conclusion}.
+% The full version of this
+% paper\footnote{\url{http://okmij.org/ftp/Prolog/Arithm/arithm.pdf}}
+% includes appendices outlining proofs of the properties of solution sets.
+% We have also implemented
+% declarative arithmetic as Haskell type-level relations (type classes)
+% \cite{lightweight-resources}.
+
+
+% \section{Predicates for Unary Arithmetic}
+% \label{s:unary}
+
+% We begin with unary numerals.
+% Unary is simpler than binary, since every unary numeral is
+% structurally part of its successor, so we may use structural
+% recursion. However, membership and non-membership still need to
+% be decidable for the base arithmetic predicates, whose domains are
+% infinite however they are represented.
+% Hence, the unary case already presents our main challenges.
+% The unary case also lets us introduce and illustrate
+% most of our terminology in this section.
+
+% We represent unary numerals as lists of atoms \schemeresult{u}: \scheme{`()} denotes zero,
+% \scheme{`(u)} denotes one, \scheme{`(u u)} denotes two, etc.%
+% \footnote{We could just as easily use a more common representation 
+% $z$, $s(z)$, $s(s(z))$, etc. We chose lists for consistency with our
+%   binary representation.}  Throughout this section
+% we use the shorthand \bn{n} to indicate our representation of
+% the number $n$---that is, the list of \schemeresult{u}'s of length~$n$.
+
+% Although miniKanren is not statically typed, we assume an 
+% implicit type of `unary numerals' and an implicit
+% typing of logic variables. For example, the implicit type of the term
+% \scheme{`(u u . ,x)} is `unary numeral'; the logic variable \scheme{x} has
+% the same type. The type predicate for unary numerals can be expressed
+% as a generator:
+
+% \schemedisplayspace
+% \begin{schemedisplay}
+% (define genuo
+%   (lambda-e (t)
+%     (`(()))
+%     (`((u . ,x)) (genuo x))))
+% \end{schemedisplay}
+
+% \noindent A term \scheme{t} has the type of `unary numeral' if the goal \scheme{(genuo t)}
+% succeeds.  When providing denotations for terms and goals we
+% use the implicit type of a logic variable to characterize the 
+% variable's domain.
+
+% We can add unary numerals with a special case of the
+% \scheme{appendo} predicate.
+
+% \schemedisplayspace
+% \begin{schemedisplay}
+% (define addo
+%   (lambda-e (n m s)
+%     (`(() ,x ,x))
+%     (`((u . ,x) ,y (u . ,z)) (addo x y z))))
+% \end{schemedisplay}
+
+% \noindent We can use \scheme{addo} to add numerals: the goal
+% \scheme{(addo bn1 bn2 x)} unifies \scheme{x} with \bn3.  We can also use \scheme{addo} for
+% subtraction: both \scheme{(addo x bn1 bn3)} and
+% \scheme{(addo bn1 x bn3)} unify \scheme{x} with \bn2, and the evaluation of
+% \scheme{(addo x bn3 bn1)} fails finitely. We can further use \scheme{addo} to
+% decompose a number into its summands: for example, \scheme{(addo x y bn3)}
+% has four solutions, in which \scheme{x} and \scheme{y} are unified in turn with
+% $\bn0$ and $\bn3$, $\bn1$ and $\bn2$, $\bn2$ and $\bn1$, and $\bn3$
+% and $\bn0$. Finally, passing three distinct uninstantiated logic
+% variables to \scheme{addo} lets us enumerate the domain of addition over the
+% natural numbers.  The evaluation of the query \scheme{(addo x y z)} in miniKanren yields an infinite set of solutions; here are the first three, assuming a {\em depth-first} search strategy:
+
+% \schemedisplayspace
+% \begin{schemedisplay}
+% (run3 (q)
+%   (exist (x y z)
+%     (addo x y z)
+%     (== `(,x ,y ,z) q)))  $\Rightarrow$ 
+% \end{schemedisplay}
+% \nspace
+% \begin{schemeresponse}
+% ((() _$_{_{0}}$ _$_{_{0}}$)
+%  ((u) _$_{_{0}}$ (u . _$_{_{0}}$))
+%  ((u u) _$_{_{0}}$ (u u . _$_{_{0}}$)))
+% \end{schemeresponse}
+
+% \noindent This stream of solutions represents the infinite addition
+% relation \emph{in two different ways}. First, the goal produces an
+% infinite number of solutions; we can always re-evaluate the
+% goal to get another solution. Second, each solution represents
+% infinitely many triples, all members of
+% the addition relation. For example, the second solution
+% compactly represents the infinitely many triples of naturals $(x,y,z)$
+% for which $x$ is one and $z$ is the successor of $y$.  Each instantiation
+% of the free logic variable \schemeresult|_$_{_{0}}$| to a member of its domain
+% (corresponding to its implicit type) yields a new triple of naturals
+% that is a member of the addition relation. We will make extensive use of
+% this compact representation of infinite domains when proving
+% termination properties of our predicates.
+
+% \subsection{Solution Sets}\label{s:solution-set}
+
+% To formulate propositions about \scheme{addo} and other predicates, we
+% introduce the notion of \emph{solution sets}, which accounts for the
+% search strategy used to run a logic program (unlike other procedural
+% notions of solutions).  We use miniKanren syntax.
+% We identify a bound logic variable with the term it is bound to,
+% so all variables are free for us, as for Lloyd \cite{lloyd:lp}.
+% Our goals are all pure (contain no \scheme|varo|, \scheme|project|,
+% negation, or \scheme|conda|/\scheme|condu|).
+
+% We assume an \emph{idempotent} notion of substitution
+% \cite{FBaade01}: a substitution~$\theta$
+% is a finite map $\set{x_i=t_i}$ from logic variables~$x_i$ to
+% terms~$t_i$ such that no $t_j$ contains any~$x_i$.
+% \begin{comment}
+% The finite set $\set{x_i}$ is
+% the domain $\dom\theta$.
+% and the set of variables occurring in 
+% $\set{t_i}$ is the set $\fv\theta$ of free variables of $\theta$.
+% \end{comment}
+% We write the application of the substitution $\theta$ to a term $t$ as
+% $t\theta$; this application easily extends to tuples of
+% terms and sets of tuples.
+
+% \begin{definition}[Conjunction of substitutions]\label{defn:conjunction}
+% We define the \emph{conjunction} $\theta\xi$ of two 
+% substitutions $\theta$ and $\xi$ by treating them
+% as sets of equations $\set{x_i = t_i}$: we combine both
+% sets (the result may contain two equations for the same $x_i$) and use
+% unification to solve the resulting equations
+% \cite[\S2.2.3]{FBaade01}. Our conjunction of substitutions is thus
+% commutative and associative.  Because of the unification our
+% conjunction is partial: if unification fails we call
+% the original substitutions contradictory.
+% \end{definition}
+
+% \begin{comment}
+% Notion of instantiatedness and instantiatedness tree from Mercury
+% documentation.
+% \url{http://www.cs.mu.oz.au/research/mercury/information/doc-release/mercury_ref/Insts-modes-and-mode-definitions.html#Insts-modes-and-mode-definitions}
+% \end{comment}
+
+% \newcommand{\bind}{\star}
+% \newcommand{\plus}{\oplus}
+% \newcommand{\equal}{=}
+% We can interpret a goal~$g$ as a function from a substitution
+% to a (finite or infinite) stream of substitutions.  Both SLD and
+% SLD-interleaving \cite{backtracking} interpret (right-associative and non-commutative)
+% disjunction and conjunction by
+
+% \hspace{2.9cm}\scheme|(conde (g1) (g2))|$(\theta) \equal g_{_{1}}(\theta) \plus g_{_{2}}(\theta)$,
+
+% \hspace{3.2cm}\scheme|(exist () g1 g2)|$(\theta) \equal g_{_{1}}(\theta) \bind g_{_{2}}$
+
+% % we use ; and , rather than \land and \lor for consistency with Prop 2
+% where the \emph{bind} operation $\bind$ is defined recursively by
+% \begin{align*}
+%     \boldleftparen \boldrightparen                    &\bind f \equal \boldleftparen \boldrightparen, \\
+%     \boldleftparen \theta\ \centerdot\ \vec\theta \boldrightparen &\bind f \equal (f \theta) \plus (\vec\theta \bind f).
+% \end{align*}
+% The difference between SLD and SLD-interleaving is that $\plus$ above is
+% defined as stream concatenation in SLD but stream 
+% interleaving in SLD-interleaving.
+
+% \begin{definition}[Solution sequence and set]
+%   Given an $n$-ary predicate \scheme{g} and $n$ terms $t_1,\ldots,t_n$ that may
+%   contain logic variables, a \emph{solution}
+%   of a goal {\rm \scheme|(g t1 ... tn)|} is an $n$-tuple
+%   $(t^{\prime}_1,\ldots,t^{\prime}_n)$ where each $t^{\prime}_i$ instantiates $t_i$
+%   after the evaluation of the goal succeeds
+%   using SLD or SLD-interleaving strategy.
+%   A solution can be represented as $(t_1,\ldots,t_n)\theta$ for some
+%   substitution $\theta$.
+%   A \emph{solution sequence} is
+%   a sequence of solutions obtained by evaluating and
+%   successively re-evaluating a goal.
+%   The sequence is a \emph{solution set} if no two of its members
+%   unify with each other.
+% \end{definition}
+% A goal that fails has the empty solution set. A goal whose evaluation
+% or re-evaluation does not terminate does not have a solution
+% sequence.
+% In contrast, the goal \mbox{\scheme|(genuo x)|} does have a solution sequence (which
+% can be infinite)
+% because its evaluation and re-evaluation always terminates.
+% We assume SLD as the default solution strategy.
+% If we add the clause \scheme{(addo x '() x)} as a well-meaning optimization ($x+0=x$)
+% after the first clause of \scheme{addo} above, the solution sequence may not
+% necessarily be a solution set: for example, the goal \scheme{(addo x y bn0)}
+% will have $(\bn0,\bn0,\bn0)$ in duplicate.
+
+
+% The notion of solution sequence is constructive, `proof-theoretic,' to
+% be distinguished from a model of a logic program: each
+% solution has been actually \emph{derived}, in finite time, from
+% the facts and rules at hand using the given solution strategy. A term
+% in a solution may contain free logic variables.  We can prove
+% the following properties of solution sets
+% (see Appendix~A of our full paper).
+
+% \begin{comment}
+% \oleg{define the monotonicity property: what happens with the solution
+%    sequence if we add one more clause to the definition of the goal,
+%    after the existing clauses. Note starvation: under SLD, solution set
+%    remains the same if it is already infinite.}
+% \end{comment}
+
+% \begin{proposition}\label{p:ss-monotonicity}
+% If a goal {\rm \scheme|(g t1 ... tn)|} has a (finite or infinite) solution set 
+% $\set{ (t_1,\ldots,t_n)\theta_i }$
+% and $\xi$ is a substitution that contradicts only finitely many 
+% $\theta_i$, then the goal 
+% \mbox{{\rm \scheme|(g t1$\xi$ ... tn$\xi$)|}} has a solution set
+% $\set{ (t_1,\ldots,t_n)({\theta_i}\xi) }$,
+% omitting the elements where $\theta_i$ and $\xi$ are contradictory.
+% \end{proposition}
+
+% The solution set of a conjunction of goals 
+% \scheme{(g1 t11 ... t1n)} and \scheme{(g2 t21 ... t2n)} is 
+% (as in a natural database join)
+% the set of tuples $\set{ (t_{11},\ldots,t_{1n},t_{21},\ldots,t_{2n}) }$
+% after the evaluation of the conjunction has succeeded.
+
+% \begin{proposition}\label{p:ss-conj-finite}
+% If the goals $g_1$ and $g_2$ have a finite solution set, 
+% then the conjunction of $g_1$ and $g_2$ has a finite solution set.
+% \end{proposition}
+% This proposition is a corollary of the previous proposition. It
+% does not generally hold if the solution set of one of the conjuncts is infinite. For example, 
+
+% \schemedisplayspace
+% \begin{schemedisplay}
+% (define mfo
+%   (lambda-e (n m)
+%     (`(() (u . ,y)) (genuo y))
+%     (`((u . ,x) ,y) (mfo `(u . ,x) y))))
+% \end{schemedisplay}
+
+% \noindent The goal \scheme{(mfo x y)}, with the variables \scheme{x} and \scheme{y} free, has the infinite solution set 
+% $\set{(\bn0,\bn{i}): i \in \mathbb{N}^+}$. However, the (left or right)
+% conjunction of this goal with \mbox{\scheme|(== x bn1)|} diverges and has no solution set.
+% Similarly, the conjunction of \mbox{\scheme|(mfo x y)|} with \mbox{\scheme|(== x y)|} has no solution set
+% either.
+% Prop.\,\ref{p:ss-monotonicity} applies to neither conjunction because 
+% the substitutions $\{x=\bn1\}$ and $\{x=y\}$ both
+% contradict infinitely many solution-set substitutions (in fact, all
+% of them).
+% The latter conjunction is equivalent to the goal
+% \scheme{(mfo x x)}; such sharing of variables among the arguments of
+% a goal is lethal to the termination guarantees below (such as
+% Prop.\,\ref{p:add-unground}).
+
+% \begin{proposition}\label{p:ss-conj-infinite}
+% If a goal {\rm \scheme|(g1 t1 ... tn)|} has a finite solution set 
+% $\set{(t_1,\ldots,t_n)\theta_i}$ and the goal
+% \mbox{{\rm \scheme|(g2 $t^{\prime}_1$$\theta_1$ ... $t^{\prime}_m$$\theta_1$)|}} has an infinite solution set
+% $\set{(t_1^{\prime}\theta_1,\ldots,t_m^{\prime}\theta_1)\xi_j}$, then
+% the conjunction of $g_1$ and $g_2$ has the infinite solution set
+% $\set{(t_1,\ldots,t_n,t_1^{\prime},\ldots,t_m^{\prime})\penalty\binoppenalty(\theta_1\xi_j)}$.
+% \end{proposition}
+% This proposition describes the incompleteness of SLD\@: its underlying
+% depth-first search becomes trapped exploring the leftmost 
+% infinite branch of the search tree. However, using 
+% the SLD-interleaving strategy, we can strengthen the proposition:
+
+% \begin{proposition}\label{p:ss-conj-interleaving}
+% If a goal
+% \mbox{{\rm \scheme|(g1 t1 ... tn)|}} has a (finite or infinite) solution set 
+% $\set{(t_1,\ldots,t_n)\theta_i}$ and the goal
+% \mbox{{\rm \scheme|(g2 $t^{\prime}_1$$\theta_i$ ... $t^{\prime}_m$$\theta_i$)|}} has a non-empty (finite or 
+% infinite) solution set $\set{(t_1^{\prime}\theta_i,\ldots,t_m^{\prime}\theta_i)\xi_{ij}}$
+% for each~$i$, then
+% the conjunction of $g_1$ and $g_2$ has the solution set
+% $\set{ (t_1,\ldots,t_n,t_1^{\prime},\ldots,t_m^{\prime})(\theta_i\xi_{ij}) }$.
+% \end{proposition}
+% The proof is based on the laws of fair conjunction and disjunction in
+% \cite{backtracking}; details are given in
+% Appendix~B of our full paper.
+% We use analogous properties for disjunctions of goals.
+
+% \subsection{Properties of Addition: Solution Sets of Addition}\label{s:solution-sets-of-addition}
+
+% If $t$ is a term and $n$ is a natural number, then we write
+% \mbox{\scheme|`(u$^{n}$ . ,t)|} to mean \mbox{\scheme|`(u ... u . ,t)|} where \mbox{\scheme|`u ... `u|}
+% consists of $n$ occurrences of~\scheme{`u}.
+
+% One can easily prove the following propositions:
+% \begin{proposition}\label{p:add-ground-XY}
+% The goal {\rm \scheme|(addo x y z)|}, where \scheme{x} and \scheme{y} are instantiated to ground
+% numerals and \scheme{z} is free, has a singleton solution set
+% unifying \scheme{z} with the
+% numeral that is the sum of those corresponding to \scheme{x} and \scheme{y}.
+% \end{proposition}
+% That is, if the first two arguments of \scheme{addo} are instantiated to
+% numerals, the goal is decidable and has one solution.
+% \begin{proposition}\label{p:add-ground-Z}
+% The goal {\rm \scheme|(addo x y z)|} where \scheme{z} is instantiated to a ground numeral
+% has a finite solution set.
+% \end{proposition}
+% The proof is an easy induction on the third argument.
+
+% \begin{proposition}\label{p:add-ground-X}
+% The goal {\rm \scheme|(addo x y z)|}, where \scheme{x} is a ground numeral \bn{n} and \scheme{y} and \scheme{z} are
+% free, has the singleton solution set
+% $\{ (\bn{n},g,${\rm \scheme|`(u$^n$ . ,g)|}$) \}$ where \scheme{g}
+% is a free logic variable.
+% \end{proposition}
+% The proof is by induction on \scheme{x}. The proposition easily extends to
+% the case where \scheme{y} and \scheme{z} are arbitrary terms, using
+% Prop.\,\ref{p:ss-monotonicity}. 
+
+% \begin{proposition}\label{p:add-free}
+% The goal {\rm \scheme|(addo x y z)|}, where the arguments are distinct
+% free logic variables, has an infinite solution set
+% $\{ (\bn{n},g,${\rm \scheme|`(u$^n$ . ,g)|}$) : n\in\mathbb{N} \}$ 
+% where $g$ is a free logic variable. In each solution,
+% $x$ is unified to a ground numeral. 
+% \end{proposition}
+% The proof is by induction on $x$ and soundness of SLD resolution.
+
+% \begin{definition}[Denotation of arithmetic solutions]
+% The \emph{denotation} $\denot\cdot$ of an arithmetic term or solution set is defined as follows.
+% \begin{align*}
+% \denot {\bn n} &= \{n\}\\
+% \denot t &= \set{\, n \in \mathbb{N} : n \ge m \,} \notag\\[-\jot]
+% &\qquad\text{where $t$ is the non-ground term \emph{$\boldleftparen \sfusymbol^m\ \centerdot\ x\boldrightparen$}} \notag\\[-\jot]
+% &\qquad\text{where $x$ is a free logic variable of the type of unary numerals}\\
+% \denot{(t_1,\ldots,t_n)} &= \denot{t_1} \times \dotsb \times \denot{t_n} \\
+% \denot S &= \cup_{s \in S}\denot {s}
+% \quad\text{for a solution set $S$ (whose elements are all disjoint)}
+% \end{align*}
+% \end{definition}
+
+% \noindent
+% The previous propositions along with Prop.\,\ref{p:ss-monotonicity} let
+% us prove:
+% \begin{proposition}\label{p:add-unground}
+% The goal {\rm \scheme|(addo x y z)|} where the arguments have no shared logic variables has
+% a solution set with \scheme{x} always unified to a ground numeral. 
+% The denotation of the solution set is
+% $\set{(u,v,w) \in \denot{x} \times \denot{y} \times \denot{z} : u+v=w}$.
+% \end{proposition}
+% The proof simply invokes Prop.\,\ref{p:add-ground-Z} or
+% Prop.\,\ref{p:add-ground-X} if $z$ or $x$ is ground.
+% If neither $z$ nor $x$ is ground, then the arguments of the goal,
+% since they share no logic variables,
+% contradict only finitely many solutions in the set of
+% Prop.\,\ref{p:add-free}, so we invoke Prop.\,\ref{p:ss-monotonicity}.
+
+
+% The proposition states that the predicate \scheme{addo} is fully decidable:
+% for any arguments sharing no free variables, the predicate
+% decides if the denotation of these arguments is in the domain
+% of addition \emph{or not}. Furthermore, for any subset of the domain
+% of addition of the form
+% $\set{(u,v,w) \in \denot{x} \times \denot{y} \times \denot{z} : u+v=w}$,
+% there is a goal with exactly this denotation.
+% We call such a predicate \emph{faithful}.
+
+
+% \subsection{Multiplication}\label{s:unary-mul}
+
+% Multiplication of unary numbers may seem as trivial as
+% addition. (We will be developing several versions of multiplication,
+% so we label the \scheme{mulo} predicates with a numeric version  
+% to distinguish them.)
+
+% \schemedisplayspace
+% \begin{schemedisplay}
+% (define mul1o
+%   (lambda-e (n m p)
+%     (`(() __ ()))
+%     (`((u . ,x) ,y ,z)
+%      (exist (z1)
+%        (mul1o x y z1)
+%        (addo z1 y z)))))
+% \end{schemedisplay}
+
+% \noindent This predicate directly encodes the inductive definition of
+% multiplication: \mbox{$0 \cdot x = 0$,} $(x+1)\cdot y = x\cdot y + y$. Indeed, 
+% the goal \scheme{(mul1o bn3 bn2 x)} has the singleton solution set with $x$
+% unified with $\bn6$. However, the goal \scheme{(mul1o x bn2 bn6)}
+% diverges after producing the first solution, the goal
+% \scheme{(mul1o x bn2 bn5)} diverges without producing anything, and
+% \scheme{(mul1o x y bn6)} overflows the stack after producing three solutions.
+% % -- $x=\bn1,y=\bn6$, $x=\bn2,y=\bn3$, $x=\bn3,y=\bn2$ -- 
+
+% The problem is left-recursion in the second clause: the goal
+% \scheme{(mul1o x bn2 z)} with free $x$ and~$z$ requires evaluating
+% \scheme{(mul1o x^ bn2 z^)} again with free \scheme{x^} and~\scheme{z^}. Reordering
+% goals in the body of the second clause eliminates left-recursion:
+
+% \schemedisplayspace
+% \begin{schemedisplay}
+% (define mul2o
+%   (lambda-e (n m p)
+%     (`(() __ ()))
+%     (`((u . ,x) ,y ,z)
+%      (exist (z1)
+%        (addo z1 y z)
+%        (mul2o x y z1)))))
+% \end{schemedisplay}
+
+% \noindent Now \scheme{(mul2o x bn2 bn6)} has a singleton solution set and
+% \scheme{(mul2o x bn2 bn5)} fails finitely.
+% However, whereas before
+% \scheme{(mul1o bn3 bn2 x)} had a singleton solution set (with $x=\bn6$), 
+% this version \scheme{mul2o} diverges after the
+% first solution, so the goal has no solution set.
+
+% Interestingly, simply swapping the arguments to \scheme{addo} fixes the
+% problems.
+
+% \schemedisplayspace
+% \begin{schemedisplay}
+% (define mul3o
+%   (lambda-e (n m p)
+%     (`(() __ ()))
+%     (`((u . ,x) ,y ,z)
+%      (exist (z1)
+%        (addo y z1 z)
+%        (mul3o x y z1)))))
+% \end{schemedisplay}
+
+% \noindent Now \mbox{\scheme|(mul3o x bn2 bn6)|} and \mbox{\scheme|(mul3o bn3 bn2 x)|} both have singleton
+% solution sets, and \mbox{\scheme|(mul3o x bn2 bn5)|} fails finitely. 
+% The reason is important. Evaluating
+% \mbox{\scheme|(mul2o bn3 bn2 z)|} requires evaluating
+% \mbox{\scheme|(addo z1 bn2 z)|} whereas evaluating
+% \mbox{\scheme|(mul3o bn3 bn2 z)|} requires evaluating
+% \mbox{\scheme|(addo bn2 z1 z)|}.
+% Although both addition goals denote the same relation, the former
+% has the infinite solution set
+% $\set{ (\bn0,\bn2,\bn2), \penalty\binoppenalty (\bn1,\bn2,\bn3),
+%     \penalty\binoppenalty (\bn2,\bn2,\bn4),\ldots}$
+% whereas the latter has the singleton solution set
+% $\{ (\bn2,g,$\scheme|`(u u . ,g)|$) \}$ (Prop.\,\ref{p:add-ground-X}).
+% That makes all the difference, as we prove below.
+
+% However, \scheme{mul3o} is not perfect. Evaluating
+% \scheme{(mul3o x y bn6)} overflows the stack,
+% because it requires evaluating
+% \mbox{\scheme|(addo y z1 bn6)|}, which gives $z_1=\bn6, y=\bn0$ as one
+% solution.  This solution causes a recursive call
+% \mbox{\scheme|(mul3o x^ y bn6)|}, same as the original call. Thus we must treat
+% zero multiplicands separately,
+% taking care to avoid overlapping solutions so that the solution
+% sequence remains a solution set.
+
+% \schemedisplayspace
+% \begin{schemedisplay}
+% (define mulo
+%   (lambda-e (n m p)
+%     (`(() __ ()))
+%     (`((u . __) () ()))
+%     (`((u . ,x) (u . ,y) ,z)
+%      (exist (z1)
+%        (addo `(u . ,y) z1 z)
+%        (mulo x `(u . ,y) z1)))))
+% \end{schemedisplay}
+
+% \noindent This pattern of fixing one problem only to see another problem emerge
+% is quite common, which is why we need proofs.
+
+% \begin{comment}
+% In conducting the proofs below, we will appeal to the size-change
+% termination principle (Jones et al, GPCE 2002) ``a program terminates
+% on all inputs if every valid infinite call sequence would, if
+% executed, cause an infinite decrease in some parameter values''
+% trivially extended to logic programs (exploration of search trees).
+% \oleg{use that paper and a paper at FLOPS2006 for relevant literature
+%   on termination analysis of logic programs. Mention Mercury's
+%   termination checker.}
+% \end{comment}
+
+% \begin{proposition}\label{p:mul-ground-XY}
+% The goal {\rm \scheme|(mulo x y z)|}, where $x$ and $y$ are instantiated to ground
+% numerals and $z$ is free, has the singleton solution set that
+% unifies $z$ with the
+% numeral that is the product of the numerals for $x$ and $y$.
+% \end{proposition}
+% The proof is an induction on $x$ using Prop.\,\ref{p:ss-conj-finite}
+% and Prop.\,\ref{p:add-ground-X}.
+% \begin{comment}
+% \oleg{or should we appeal to the size-changing principle?}
+% That is, if the first two arguments of \verb|mul/3| are instantiated to
+% numerals, the goal is decidable and has at most one solution.
+% \end{comment}
+
+% \begin{proposition}\label{p:mul-ground-Z}
+% The goal {\rm \scheme|(mulo x y z)|}, where $z$ is instantiated to a ground numeral,
+% has a finite solution set.
+% \end{proposition}
+% The proof depends on Prop.\,\ref{p:ss-conj-finite} and
+% Prop.\,\ref{p:add-ground-Z}:
+% each solution of
+% \scheme{(addo `(u . ,y) z1 z)} instantiates
+% $z_1$ to a ground numeral smaller than the numeral for~$z$. 
+% \begin{comment}
+% The latter
+% fact follows from the soundness of addition.
+% \end{comment}
+
+% \begin{proposition}\label{p:mul-ground-Y}
+% The goal {\rm \scheme|(mulo x y z)|}, where $y$ is instantiated to a positive 
+% ground numeral \bn{n} and $x$ and $z$ are free, has the solution set
+% $\set{ (\bn{i},\bn{n},\bn{i\cdot n}) : i \in \mathbb{N} }$. If $y$ is \bn0,
+% the solution set is finite: $\{ (\bn0,\bn0,\bn0), (${\rm \scheme|`(u . ,x)|}$,\bn0,\bn0) \}$.
+% \end{proposition}
+% The proof is by induction on $y$ and Prop.\,\ref{p:add-ground-X}.
+
+
+% \begin{proposition}\label{p:mul-unground-interleave}
+% Under the SLD-interleaving strategy,
+% the goal {\rm \scheme|(mulo x y z)|}, where the arguments share no logic variables,
+% has a solution set that denotes
+% $\set{ (u,v,w) \in \denot{x} \times \denot{y} \times \denot{z} :
+% u\cdot v=w}$.
+% \end{proposition}
+% The proof depends on Props.\,\ref{p:add-unground}, \ref{p:mul-ground-Y}
+% and~\ref{p:ss-conj-interleaving}.
+% Thus under SLD with interleaving, our \scheme{mulo} predicate is faithful
+% to the multiplication
+% relation on naturals.
+
+% Without interleaving, the goal \scheme{(mulo x y z)} has the solution set:
+
+% $\{ (\bn0, g,\bn0), (${\rm \scheme|`(u . ,g$^{\prime}$)|}$,\bn0,\bn0), (\bn1,\bn1,\bn1), (\bn2,\bn1,\bn2),(\bn3,\bn1,\bn3),\ldots \}$.
+
+% \noindent The denotation of this solution set
+% obviously does not cover the entire
+% multiplication relation: the second argument gets `stuck' on~$1$.
+% Under SLD\@, then, our predicate \scheme{mulo} covers only an infinitesimal part of
+% the domain of multiplication. We can do better: we define
+% a predicate \scheme{semimulo} that
+% has the \emph{same} termination properties as \scheme{mulo} but covers \emph{half} of the
+% domain of multiplication, namely $y \le x$, whichever arguments are instantiated.
+
+% We first define the predicate \scheme{lesso}, corresponding to the less-than
+% relation.
+
+% \schemedisplayspace
+% \begin{schemedisplay}
+% (define lesso
+%   (lambda-e (n m)
+%     (`(() (__ . __)))
+%     (`((u . ,x) (u . ,y)) (lesso x y))))
+% \end{schemedisplay}
+
+% \noindent The \scheme{semimulo} predicate is then as follows.
+
+% \schemedisplayspace
+% \begin{schemedisplay}
+% (define semimulo
+%   (lambda-e (n m p)
+%     (`(() __ ()))
+%     (`((u . __) () ()))
+%     (`((u . ,x) (u . ,y) ,z) (lesso x z) (lesso y `(u . ,x))
+%      (mulo `(u . ,x) `(u . ,y) z))))
+% \end{schemedisplay}
+
+% \begin{proposition}
+% The goal {\rm \scheme|(semimulo x y z)|}, where the arguments are free logic variables,
+% has a solution set that denotes
+% $\set{ (u,v,w) \in \mathbb{N}^3: v \le u,\, u\cdot v=w }$.
+% \end{proposition}
+% The proof depends on the goal \scheme{(lesso x z)}, which asserts the trivial inequality
+% $x < (x+1)\cdot (y+1)$ for all $x,y \in \mathbb{N}$.
+% With free $x$ and $z$, the goal
+% \scheme{(lesso x z)} has an infinite solution set whose solutions each
+% instantiate $x$ to a ground numeral.
+% The goal \scheme{(lesso y `(u . ,x))}
+% then has a \emph{finite} solution set that grounds $y$ as well.
+% The last goal has thus a singleton
+% solution set, by Prop.\,\ref{p:mul-ground-XY}.
+
+% These attempts to define decidable multiplication even for the
+% seemingly trivial unary case show the difficulties that become more
+% pronounced as we move to binary arithmetic. We rely on a
+% finite representation of infinite domains, precise instantiatedness
+% analysis, and reasoning about SLD using search trees.
+
+
+% \section{Binary Numerals}\label{s:binary}
+
+% We represent numerals as lists of binary digits in little-endian order
+% (least significant bit first), with zero represented as the empty
+% list.  A zero bit is denoted by \schemeresult{o} (lower-case `oh') and a one bit is denoted
+% by \schemeresult{l} (lower-case `el')---to distinguish a
+% number from its representation.  For example, the terms \scheme{`()}, \scheme{`(l)},
+% \scheme{`(o l)}, \scheme{`(l l)}, \scheme{`(o o l)} represent $0$ through~$4$.
+% The last bit of
+% a positive numeral \emph{must} be~\schemeresult{l}. Our code below takes special
+% care to maintain this well-formedness condition.
+% It is trivial to convert
+% between this and Prolog's native representations of integers.
+
+% We often use the auxiliary one-clause
+% predicates \scheme{zeroo}, \scheme{poso}, and \scheme{gtlo}:
+
+% \schemedisplayspace
+% \begin{schemedisplay}
+% (define zeroo
+%   (lambda-e (n)
+%     (`(()))))
+
+% (define poso
+%   (lambda-e (n)
+%     (`((__ . __)))))
+
+% (define gtlo
+%   (lambda-e (n)
+%     (`((__ __ . __)))))
+% \end{schemedisplay}
+
+% \noindent The goal \scheme{(zeroo n)} succeeds if $n$ is zero. The goal \scheme{(poso n)}
+% succeeds if $n$ is positive. The goal \scheme{(gtlo n)} succeeds
+% if $n$ is at least two.
+
+% The predicate \scheme{genbo} below expresses the
+% implicit type of binary numerals.
+
+% \schemedisplayspace
+% \begin{schemedisplay}
+% (define genbo
+%   (lambda-e (n)
+%     (`(()))
+%     (`((l . ,x)) (genbo x))
+%     (`((o . ,x)) (poso x) (genbo x))))
+% \end{schemedisplay}
+
+% \noindent The presence of \scheme{(poso x)} in the last clause ensures that the last
+% bit of a positive numeral is~\schemeresult{l}. The code below contains similar
+% guarding occurrences of \scheme{poso}.
+
+% Recall that one challenge of binary arithmetic is that a numeral
+% is not structurally part of its
+% successor. However, such a notion of inclusion exists (with
+% the attendant induction principle) if we consider the `length' of a binary
+% number, i.e., the number of bits in its binary representation. 
+% More precisely, the length~$\norm{n}$ of a numeral~$n$
+% is $\floor{\log_2 n} + 1$ if $n>0$, and $0$ if $n=0$. We define \scheme{lesslo} by
+
+% \schemedisplayspace
+% \begin{schemedisplay}
+% (define lesslo
+%   (lambda-e (n m)
+%     (`(() (__ . __)))
+%     (`((__ . ,x) (__ . ,y)) (lesslo x y))))
+% \end{schemedisplay}
+
+% \noindent It has the meaning and form of the unary \scheme{lesso}
+% in~\S\ref{s:unary-mul}---and the same termination properties---but
+% compares the length of binary numbers rather their magnitude.
+
+% \section{Addition and Subtraction}\label{s:addsub}
+
+% % http://en.wikipedia.org/wiki/Adder_(electronics)
+
+% % full adder: one-bit adder
+% % what below is full_adder is nbit adder (multiple-bit) adder
+% % of the ripple-carry adder type
+
+% Our treatment of addition is inspired by hardware 
+% full-adders and multi-bit adders, 
+% as found in a digital computer's arithmetic logic
+% unit \citep{hennessy-computer}.  A one-bit full-adder
+% \mbox{\scheme|(full1-addero cin a b s cout)|} relates two input bits $a,b$ and the incoming
+% carry bit $c_{\mathrm{in}}$ with the sum bit~$s$ and the outgoing carry 
+% bit $c_{\mathrm{out}}$, according
+% to the equation $c_{\mathrm{in}} + a + b = s + 2 c_{\mathrm{out}}$. In miniKanren,
+% we define \scheme{full1-addero} by enumerating eight facts:
+
+% \schemedisplayspace
+% \begin{schemedisplay}
+% (define full1-addero
+%   (lambda-e (cin a b s cout)
+%     (`(o o o o o))
+%     (`(o o l l o))
+%     (`(o l o l o))
+%     (`(o l l o l))
+%     (`(l o o l o))
+%     (`(l o l o l))
+%     (`(l l o o l))
+%     (`(l l l l l))))
+% \end{schemedisplay}
+
+% The multi-bit adder \mbox{\scheme|(fulln-addero cin a b s)|} relates
+% the incoming carry bit \scheme{cin} (either \schemeresult|o| or \schemeresult|l|), 
+% two binary numbers $a,b$, and their sum~$s$, according to the equation $c_{\mathrm{in}} + a + b = s$.
+% It is defined by recursively combining one-bit adders
+% as in a ripple-carry adder of digital logic,
+% only in our case, the summands' bitwidths need not be the same or limited.
+
+% \schemedisplayspace
+% \begin{schemedisplay}
+% (define fulln-addero
+%   (lambda-e (cin a b r)
+%     (`(o ,a () ,a))
+%     (`(o () ,b ,b) (poso b))
+%     (`(l ,a () ,r) (fulln-addero 'o a '(l) r))
+%     (`(l () ,b ,r) (poso b) (fulln-addero 'o '(l) b r))
+%     (`(,cin (l) (l) (,r1 ,r2)) (full1-addero cin 'l 'l r1 r2))
+%     (`(,cin (l) (,ba . ,bd) (,ra . ,rd)) (poso bd) (poso rd)
+%      (exist (cout)
+%        (full1-addero cin 'l ba ra cout)
+%        (fulln-addero cout '() bd rd)))
+%     (`(,cin ,a (l) ,r) (gtlo a) (gtlo r)
+%      (fulln-addero cin '(l) a r))
+%     (`(,cin (,aa . ,ad) (,ba . ,bd) (,ra . ,rd))
+%      (poso ad) (poso bd) (poso rd)
+%      (exist (cout)
+%        (full1-addero cin aa ba ra cout)
+%        (fulln-addero cout ad bd rd)))))
+% \end{schemedisplay}
+
+% \noindent The first four clauses above deal with the cases
+% of a summand being zero. The next three clauses handle
+% the cases of a summand being one. The last clause adds
+% numbers at least two bits wide. We take
+% care to keep clauses from overlapping, so the solution
+% sequence of a \scheme{fulln-addero} goal is a solution set. The
+% splitting of the cases and the many occurrences of \scheme{poso} are
+% necessary to keep all numerals in a solution `well-typed':
+% If logic variables in a solution are instantiated according to their 
+% implicit types, we never see a list whose last element unifies with \schemeresult{o}.
+% \begin{comment}
+% i.e., satisfy the typing predicate \verb|genb/1|. If free logic variables in a
+% solution are instantiated according to their implicit types, 
+% all the numerals are well-formed---we never have a finite list 
+% whose last element unifies with \verb|o|.
+% \end{comment}
+
+% This multi-bit adder expresses binary addition, subtraction, and
+% ordering:
+
+% \schemedisplayspace
+% \begin{schemedisplay}
+% (define addo
+%   (lambda (a b c)
+%     (fulln-addero 'o a b c)))
+
+% (define subo
+%   (lambda (a b c)
+%     (addo b c a)))
+
+% (define lesso
+%   (lambda (a b)
+%     (exist (x)
+%       (poso x)
+%       (addo a x b))))
+% \end{schemedisplay}
+
+% \begin{comment}
+% The latter says that the number $a$ is less than the number $b$ if
+% there exists a positive number $x$ that can be added to $a$ to produce
+% $b$.
+% \end{comment}
+
+% Our predicate \scheme{addo} for binary numerals satisfies
+% Prop.\,\ref{p:add-ground-XY} (by induction on \mbox{$4 c_{\mathrm{in}} + 3a + b$}) and
+% Prop.\,\ref{p:add-ground-Z}.
+% However, due to carry propagation (clauses 4 and 6 of \scheme{fulln-addero}),
+% Prop.\,\ref{p:add-ground-X} and Prop.\,\ref{p:add-free} no longer
+% accurately describe the solution sets of binary \scheme{addo}:
+% the goal \mbox{\scheme|(addo x y z)|}, with either $x$ or $y$ ground and the other
+% arguments being distinct free variables, has an infinite solution
+% set.
+
+% Prop.\,\ref{p:add-unground} holds (without $x$ being always
+% ground) only in the case of SLD with interleaving;
+% for SLD\@, we can develop a binary addition
+% predicate that covers half of the domain of addition,
+% as in~\S\ref{s:unary-mul}.
+% The proofs begin by unrolling the recursion in clauses 3, 4,
+% and~7 of \scheme{fulln-addero} (splitting cases for clauses 3 and~4),
+% so that \scheme{fulln-addero} invokes itself recursively only for shorter
+% arguments.
+% \begin{comment}
+% \oleg{For the full proof, we need
+%   one more proposition about the interleaving, about adding
+%   to the disjunction.
+%   Actually, the proposition is as follows: limited completeness of
+%   SLD with interleaving: if a goal $\mathtt{g}(\vec t)$ has a 
+%   (possibly infinite) solution set, and $\mathtt{g}(\vec t)\theta$
+%   has a non-empty solution set, the solution set of the latter goal is
+%   included in the solution set of the former goal. That is not the
+%   full completeness since it does not address the divergence. That's
+%   why there is a premise that a goal must have a solution set to
+%   start with. To prove that the solution set exists, we can prove that
+%   given any particular `depth' the strategy will find a fact there.
+% }
+% \end{comment}
+
+% \section{Multiplication}\label{s:mult}
+
+% Binary multiplication may seem an obvious generalization of unary
+% multiplication. The most complex case is to multiply an odd number by
+% a positive one, $(2n + 1) m = 2 (n m) + m$, because it
+% involves addition. One may think that the
+% approach in \scheme{mulo} in~\S\ref{s:unary-mul} will work here. Alas, binary
+% addition does not satisfy Prop.\,\ref{p:add-ground-X}, so we must
+% turn to a much less obvious solution.
+
+% \schemedisplayspace
+% \begin{schemedisplay}
+% (define mulo
+%   (lambda-e (n m p)
+%     (`(() ,m ()))
+%     (`(,n () ()) (poso n))
+%     (`((l) ,m ,m) (poso m))
+%     (`((o . ,nd) ,m (o . ,pd)) (poso m) (poso nd) (poso pd) (mulo nd m pd))
+%     (`((l . ,nd) ,m ,p) (poso m) (poso nd) (gtlo p)
+%      (exist (p1)
+%        (lessl3o p1 p `(l . ,nd) m)
+%        (mulo nd m p1)
+%        (addo `(o . ,p1) m p)))))
+% \end{schemedisplay}
+
+% \noindent This solution relies on a seemingly contrived predicate \scheme{lessl3o}:
+
+% \schemedisplayspace
+% \begin{schemedisplay}
+% (define lessl3o
+%   (lambda-e (p1 p n m)
+%     (`(() (__ . __) __ __))
+%     (`((__ . ,p1d) (__ . ,pd) () (__ . ,md)) (lessl3o p1d pd '() md))
+%     (`((__ . ,p1d) (__ . ,pd) (__ . ,nd) m) (lessl3o p1d pd nd m))))
+% \end{schemedisplay}
+
+% \noindent The goal \mbox{\scheme|(lessl3o p1 p n m)|} relates four numerals such that
+% \mbox{$\norm{p_1} < \min(\norm{p},\penalty\binoppenalty \norm{n} + \norm{m} + 1)$}.
+% As long as the arguments of the goal, \emph{however instantiated}, 
+% share no logic variables, the goal has a solution set. In any solution,
+% $p_1$ is a numeral whose bits may be free but whose length is fixed.
+% We call such numerals \emph{L-instantiated}.
+% Moreover, whenever $p_1$, $p$, or both $n$ and $m$ are
+% L-instantiated, the solution set is finite.
+
+% In the code for binary \scheme{mulo} above, \scheme{lessl3o} occurs in a clause that is
+% selected when multiplying an odd number $2 n + 1$ (where $n>0$) by a positive
+% number~$m$ to yield~$p$. Under these conditions, clearly
+% $\floor{\log_2 n m}$ is less than both $\floor{\log_2 p}$
+% and $\floor{\log_2(2n+1)} + \floor{\log_2 m} + 2$, so the
+% constraint imposed by \scheme{lessl3o} does not affect the declarative meaning
+% of \scheme{mulo}.
+% The guarantee
+% of \scheme{lessl3o} mentioned above lets us prove
+% Prop.\,\ref{p:mul-ground-XY} and Prop.\,\ref{p:mul-ground-Z} for binary
+% multiplication. For Prop.\,\ref{p:mul-ground-Z},
+% \scheme{lessl3o} ensures that $p_1$ is L-instantiated,
+% so we can use induction to prove that \mbox{\scheme|(mulo n m p)|} with an
+% L-instantiated $p$ has a finite solution set. 
+
+% The important role of \scheme{lessl3o} can be informally explained as follows.
+% Given the goal \mbox{\scheme|(mulo x y z)|}, when $x$ and $y$ are instantiated but $z$
+% is free, or when $z$ is instantiated but $x$ and $y$ are free, the
+% search space is finite even though the free variables can be
+% instantiated an infinite number of ways: the length of the
+% product limits the lengths of the multiplicands, and vice versa.
+% The predicate \scheme{lessl3o} enforces these limits, even
+% though our code cannot distinguish these two cases by
+% determining which arguments are instantiated.
+
+% The \scheme{mulo} predicate also satisfies
+% Prop.\,\ref{p:mul-unground-interleave} (the proof again relies on the
+% properties of \scheme{lessl3o}). As in the unary case, using SLD without
+% interleaving, we cannot cover the whole domain of natural
+% multiplication---but we can cover half of it. The technique is
+% essentially the same as explained for unary
+% multiplication.
+
+
+% \section{Division, Exponentiation, and Logarithm}\label{s:div-exp-log}
+
+% Our predicate for division with remainder
+% \mbox{\scheme|(divo n m q r)|} relates four natural
+% numbers such that $n = m \cdot q + r < m\cdot(q+1)$. The implementation is
+% quite complex so as to finitely fail as often as possible: for example, not only
+% when the divisor $m$ is zero, but also in the case
+% \mbox{\scheme|(divo `(o . ,x) '(o l) q '(l))|} with \emph{free} $x$ and $q$, as
+% no even number divided by~$2$ gives the remainder~$1$.
+% Our algorithm is akin to long division as taught in elementary school, only
+% done right-to-left. At each step, we determine at
+% least one bit of the quotient in finite time.
+
+% First, we handle the easy case when the divisor~$m$ is
+% bigger than the dividend~$n$, so $q=0$ and $n=r$.
+
+% \schemedisplayspace
+% \begin{schemedisplay}
+% (define divo
+%   (lambda-e (n m q r)
+%     (`(,n ,m () ,r) (== n r) (lesso n m))
+%     ...))
+% \end{schemedisplay}
+
+% \noindent Otherwise, $q$ must be positive.
+% The second easy case is when $n$ is at least~$m$
+% and has the same length as~$m$.
+
+% \schemedisplayspace
+% \begin{schemedisplay}
+% (define divo
+%   (lambda-e (n m q r)
+%     ...
+%     (`(,n ,m (l) ,r) (samelo n m) (addo r m n) (lesso r m))
+%     ...))
+% \end{schemedisplay}
+
+% \noindent This code relies on the auxiliary predicate \scheme{samelo}, which holds if its
+% two arguments are binary numerals with the same number of digits.
+
+% \schemedisplayspace
+% \begin{schemedisplay}
+% (define samelo
+%   (lambda-e (n m)
+%     (`(() ()))
+%     (`((__ . ,x) (__ . ,y)) (samelo x y))))
+% \end{schemedisplay}
+
+% The main case of division is when $n$ has more digits than~$m$.
+% The key is to represent $n = m \cdot q + r < m\cdot(q+1)$ as the conjunction
+% of the two relations
+% \begin{align*}
+% 2^{l+1}r_1 &= m q_2 + r - n_2
+% &&\text{and}&
+% n_1 &= m q_1 + r_1
+% \end{align*}
+% where
+% \begin{align*}
+% n &= 2^{l+1} n_1 + n_2, & q &= 2^{l+1} q_1 + q_2, & l &= \norm{r},
+% \end{align*}
+% and $n_2$ and~$q_2$ are at most $l+1$ long.
+% Given $l$, then, we can decide the first
+% relation. Because $0 \le r_1 < m$, we can invoke
+% \mbox{\scheme|(divo n1 m q1 r1)|} recursively to decide the second
+% relation. That gives us a convenient induction principle:
+% either $n_1$ is zero and so $q_1$ and $m q_2 + r - n_2$ are both zero,
+% or $n_1$ is positive and shorter than~$n$.  These two cases correspond
+% to the disjunction below.
+
+% \schemedisplayspace
+% \begin{schemedisplay}
+% (define divo
+%   (lambda-e (n m q r)
+%     ...
+%     (`(,n ,m ,q ,r) (lesslo m n) (lesso r m) (poso q)
+%      (exist (n1 n2 q1 q2 q2m q2md r1 rd)       
+%        (splito n r n1 n2)
+%        (splito q r q1 q2)
+%        (conde
+%          ((== '() n1)
+%           (== '() q1)
+%           (subo n2 r q2m)
+%           (mulo q2 m q2m))
+%          ((poso n1)
+%           (mulo q2 m q2m)
+%           (addo q2m r q2md)
+%           (subo q2md n2 rd)
+%           (splito rd r r1 '())
+%           (divo n1 m q1 r1)))))))
+% \end{schemedisplay}
+
+% \noindent The calls to \scheme{lesslo} and \scheme{lesso} at the beginning of this code
+% ensure that \scheme{m} and then \scheme{r} are both L-instantiated.
+% The code also relies on the predicate \scheme{splito} to `split' a binary
+% numeral at a given length: The goal
+% \mbox{\scheme|(splito n r n1 n2)|} holds if 
+% $n = 2^{l+1} n_1 + n_2$ where $l = \norm{r}$ and $n_2 < 2^{l+1}$. The goal should be
+% invoked only when $r$ is L-instantiated, which is the case in the
+% \scheme{divo} code above. The goal has a finite solution set, in which
+% $n_2$ is L-instantiated in every solution.
+
+% \schemedisplayspace
+% \begin{schemedisplay}
+% (define splito (n r n1 n2)
+%   (lambda-e
+%     (`(() __ () ()))
+%     (`((o ,b . ,n) () (,b . ,n) ()))
+%     (`((l . ,n) () ,n (l)))
+%     (`((o ,b . ,n) (__ . ,r) ,n1 ()) (splito `(,b . ,n) r n1 '()))
+%     (`((l . ,n) (__ . ,r) ,n1 (l)) (splito n r n1 '()))
+%     (`((,b . ,n) (__ . ,r) ,n1 (,b . ,n2)) (poso n2) (splito n r n1 n2))))
+% \end{schemedisplay}
+
+% Our predicate
+% \mbox{\scheme|(logo n b q r)|}
+% relates four numbers such that
+% $n = b^q + r < b^{q+1}$, so it implements
+% exponentiation, logarithm, and
+% $n$-th root.
+% Our implementation uses an
+% upper bound on $r$, namely $r b < n (b-1)$, and upper and lower bounds on $q$,
+% namely $(\norm{b}-1) q < \norm{n}$ and $\norm{n}-1 < \norm{b} (q+1)$. These
+% bounds constrain the search just as \scheme{lessl3o} does for
+% binary multiplication in~\S\ref{s:mult}. Because the base-$2$
+% case is so simple, we treat it separately.
+
+
+% \section{Conclusions}\label{s:conclusion}
+
+% [TODO Integrate this text into rest of chapter, and thesis conclusion,
+% as appropriate.]
+
+% In a pure logic programming system,
+% we have declared decidable arithmetic of unrestricted unary and
+% binary natural numbers: addition, multiplication, division with
+% remainder, exponentiation, and logarithm with remainder.
+% The declared relations have unlimited domain and
+% are free from any mode restrictions or annotations.  We have proven
+% that our arithmetic predicates are fully decidable and faithfully
+% represent the corresponding arithmetic relations.  Our technique can
+% be easily extended to full integers (i.e., a tuple of the sign and a
+% natural number).
+
+% The gist of our approach is to limit the search space by a
+% balancing act of computing \emph{bidirectional} bounds from arguments of unknown
+% instantiatedness. For example, the key to decidable
+% multiplication is to limit the search using bounds that
+% the inputs place on each other, without
+% testing whether any input is instantiated. We
+% also rely on the ability to finitely represent infinite domains
+% using logic variables, so that goals with infinite denotations
+% may have only a finite solution set.
+% Our notion of solution sets and the associated proof techniques
+% are not specific to arithmetic and SLD\@; rather, they appear
+% applicable to logic programming in other domains using a variety
+% of search strategies.
+
+% %\UndefineShortVerb{\|}
+
+% \newpage
+
+% % [fix typography:  remove sfu, bind definition should use bold parens and dot]
+
+% % [should include expo and logo code.  Make sure logo code is the corrected code.]
+
+% % [need to test all of this]
+
+% % [I dumped the two proofs in the appendix--refer the reader to the published paper, or the full version on Oleg's site]
+
+% % [should I build up the definition of divo one function at a time?  Probably not as important if we use the lambda-e macro.]
+
+% % [need to discuss varo, project, conda, condu, somewhere, preferably before this chapter]
+
+% % [Careful with the use of 'we'.  Should refer to authors, not 'we', when referring to work I wasn't part of (for example, Ken and Oleg's arithmetic system using Haskell typeclasses).]
+
+% % [is it necessary or desirable to include all of the proofs?  Or can I point to the full paper?]
+
+% % [the *full* paper, with proof outlines, wasn't presented at FLOPS.  the full paper is on Oleg's website (see footnote)]
+
+% % [does this code include the fix for logo?]
+
+% % [check against canonical miniKanren arithmetic code]
+
+% % [can we write a relational quicksort program, like in Apt's paper?
+% % See page 3 of Apt's paper 'Declarative Programming in Prolog']
+
+% % \noindent [also, can we write the trans relation w/out negation?  see
+% % page 15 of Apt's paper]
+
+% % [no constraints (other than equality constraints via unification).]
+
+% % [individual operations are decidable]
+
+% % Interesting examples (need to translate to chapter's conventions and names):
+
+% % factoring
+
+% % \schemedisplayspace
+% % \begin{schemedisplay}
+% % (run* (q)
+% %   (exist (x y)
+% %     (mulo x y '(o o l l))
+% %     (== `(,x ,y) q)))
+% % \end{schemedisplay}
+% % \begin{schemeresponse}
+% % (((l) (o o l l))
+% %  ((o o l l) (l))
+% %  ((o l) (o l l))
+% %  ((o o l) (l l))
+% %  ((l l) (o o l))
+% %  ((o l l) (o l)))
+% % \end{schemeresponse}
+
+% % division
+
+% % \schemedisplayspace
+% % \begin{schemedisplay}
+% % (run* (t)
+% %   (exist (x q r)
+% %     (divo '(o l l) x q r)
+% %     (== `(,x ,q ,r) t)))
+% % \end{schemedisplay}
+% % \begin{schemeresponse}
+% % (((_.0 _.1 _.2 _.3 . _.4) () (o l l))
+% %  ((l l l) () (o l l))
+% %  ((o l l) (l) ())
+% %  ((l o l) (l) (l))
+% %  ((o o l) (l) (o l))
+% %  ((l) (o l l) ())
+% %  ((l l) (o l) ())
+% %  ((o l) (l l) ()))
+% % \end{schemeresponse}

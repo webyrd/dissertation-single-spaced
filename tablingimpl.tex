@@ -1,0 +1,569 @@
+\chapter{Implementation V: Tabling}\label{tablingimplchapter}
+
+In this chapter we implement the tabling scheme described in
+Chapter~\ref{tablingchapter}.  Our tabling implementation extends the
+streams-based implementation of miniKanren from
+Chapter~\ref{mkimplchapter}, preserving the original implementation's
+interleaving search behavior.
+
+This chapter is organized as follows.  In section~\ref{tablingrep} we
+describe the core data structures used in the implementation.
+Section~\ref{tablingalgorithm} gives a high-level description of the
+tabling algorithm.  In section~\ref{tablingcaseinf} we introduce a new
+type of \emph{waiting} stream, which requires extending both
+\scheme|case-inf| and the operators that use it: \scheme|take|,
+\scheme|bind|, and \scheme|mplus|.  Section~\ref{tablingreify} extends
+the reifier from Chapter~\ref{mkimplchapter} with a new function
+\scheme|reify-var|.  Finally in section~\ref{tablingmainimpl} we
+present the heart of the tabling implementation: the user-level
+\scheme|tabled| form, and the \scheme|master| and \scheme|reuse|
+functions to handle master and slave calls, respectively.
+
+% [TODO May want to describe data structures before giving a high-level
+% description of the algorithm---I'm not sure which is better.]
+
+\section{Answer Terms, Caches, and Suspended Streams}\label{tablingrep}
+
+Like any goal, a goal returned by a tabled goal constructor is a
+function mapping a substitution to a stream of substitutions.  The
+goal constructor's table does not store entire substitutions; rather,
+the table stores \emph{answer terms}.  An answer term is a list of the
+arguments from a master call, perhaps partially or fully instantiated
+as a result of running the goal's body.  A \scheme|cache| 
+associates each master call with a set of answer terms.  A subsequent
+slave call reuses the master call's tabled answers by unifying each
+answer term in the cache with the slave call's actual parameters,
+producing a stream of answer substitutions.
+
+There may be multiple slave calls associated with each master call;
+each slave call ``consumes'' \emph{all} the tabled answer terms in the
+cache.  Evaluation of the master call and its slave calls are
+interleaved---slave calls may start consuming answer terms before the
+master call has finished producing them.  When a master call produces
+new answer terms, the consumption of these answers by associated slave
+calls can result in new master or slave calls.  The algorithm reaches
+a fixed point when all master calls have finished producing answers,
+and each slave call has consumed every answer term produced by its
+associated master call.
+
+To understand why we table answer terms rather than full
+substitutions, consider this \scheme|run*| expression.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(let ((f (tabled (z) (== z 6))))
+  (run* (q)
+    (exist (x y)
+      (conde
+        ((== x 5) (f y))
+        ((f y)))
+      (== `(,x ,y) q))))
+\end{schemedisplay}
+
+\noindent 
+Imagine that the first \scheme|conde| clause is evaluated completely
+before the second clause.  When the master call \mbox{\scheme|(f y)|} 
+in the first clause succeeds, the substitution will be \mbox{\scheme|`((,y . 6) (,x . 5))|}.
+If we were to table the full substitution, including the association for \scheme|x|, 
+the slave call in the second clause would incorrectly associate \scheme|x| with 5.
+The \scheme|run*| expression would therefore return
+\mbox{\scheme|'((5 6) (5 6))|} instead of the correct answer
+\mbox{\scheme|'((5 6) (_.0 6))|}.
+
+Since the table records answer terms rather than entire substitutions,
+a tabled goal constructor must be closed with respect to logic
+variables; values associated with free logic variables would be
+forgotten.  For example, the \scheme|run*| expression
+
+\schemedisplayspace
+\begin{schemedisplay}
+(run* (q)
+  (exist (x y)
+    (let ((f (lambda (z) (exist () (== x 5) (== z 6)))))
+      (conde
+        ((f y) (== `(,x ,y) q))
+        ((f y) (== `(,x ,y) q))))))
+\end{schemedisplay}
+
+\noindent returns \mbox{\scheme|`((5 6) (5 6))|}, as expected.  However, 
+if we were to table \scheme|f| by replacing 
+
+\noindent \mbox{\scheme|(lambda (z) (exist () (== x 5) (== z 6)))|} with 
+\mbox{\scheme|(tabled (z) (exist () (== x 5) (== z 6)))|}, 
+the \scheme|run*| expression would instead return \mbox{\scheme|`((5 6) (_.0 6))|}.
+
+Each tabled goal constructor has its own local table represented as a
+list of \mbox{\scheme|`(,key . ,cache)|} pairs, where \scheme|key| is
+a list of reified arguments from a master call, and where
+\scheme|cache| contains the set of answer terms for that master call.
+
+A cache is represented as a tagged vector, and contains a list
+of tabled answer terms.  Each master call is associated with a single
+cache.
+
+\schemedisplayspace
+\begin{schemedisplay} 
+(define make-cache (lambda (ansv*) (vector 'cache ansv*)))
+(define cache-ansv* (lambda (c) (vector-ref c 1)))
+(define cache-ansv*-set! (lambda (c val) (vector-set! c 1 val)))
+\end{schemedisplay}
+
+Each slave call is associated with a single \emph{suspended stream},
+or \scheme|ss|.  \noindent Each suspended stream is represented as a
+tagged vector containing a cache, a list of tabled answer terms
+\scheme|ansv*|, and a thunk that produces the remainder of the stream
+(an \scheme|f|, as described in section~\ref{goalconstructors}).
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define make-ss (lambda (cache ansv* f) (vector 'ss cache ansv* f)))
+(define ss? (lambda (x) (and (vector? x) (eq? (vector-ref x 0) 'ss))))
+(define ss-cache (lambda (ss) (vector-ref ss 1)))
+(define ss-ansv* (lambda (ss) (vector-ref ss 2)))
+(define ss-f (lambda (ss) (vector-ref ss 3)))
+\end{schemedisplay}
+
+\noindent The \scheme|ansv*| list indicates which of the master call's
+answer terms the suspended stream has already
+processed---\scheme|ansv*| is always a suffix of the list in
+\scheme|cache|.  There may be many suspended streams associated with a
+single \scheme|cache|---each of these \scheme|ss|'s may contain
+a different \scheme|ansv*| list, representing a different ``already
+seen'' suffix of answer terms from the cache.
+
+The \scheme|ss-ready?| predicate indicates whether a suspended
+stream's cache contains new answer terms not yet consumed by the
+stream.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define ss-ready? (lambda (ss) (not (eq? (cache-ansv* (ss-cache ss)) (ss-ansv* ss)))))
+\end{schemedisplay}
+
+% \scheme|ansv*| is only used for comparison with the cached answer
+% terms in \scheme|cache|, to determine if there are new answer terms
+% for a slave call.  If so, \scheme|ansv*| will not be \scheme|eq?| to
+% the list in \scheme|cache|---the prefix of \scheme|cache| up to the
+% beginning of \scheme|ansv*| are the answer terms that have not yet
+% been handled by the slave call.
+
+
+\section{The Tabling Algorithm}\label{tablingalgorithm}
+
+Now that we are familiar with the fundamental data structures, we can
+examine in detail the steps performed when a tabled goal constructor
+is called:
+
+%\mbox{\scheme|(appendo '(a b) '(c) z)|}:
+
+\begin{enumerate}
+\item The goal constructor creates a list of the arguments
+  passed to the call, \scheme|argv|, then returns a goal.
+\item When passed a substitution \scheme|s|, the goal reifies
+  \scheme|argv| in \scheme|s|, producing a list \scheme|key| of
+  reified arguments.
+
+% [This is just WRONG!  Standard unification is used in this step.]
+%   The reification procedure used for this step differs from the
+%   standard reification algorithm (Chapter~\ref{mkimplchapter}) in that
+%   unassociated variables are consistently replaced with newly created
+%   logic variables rather than with symbols.  This \scheme|reify-var|
+%   function is reminiscent of Prolog's {\tt copy\_term/2}, but is a
+%   Scheme procedure rather than a goal.  This step is necessary to
+%   avoid prematurely instantiating the original logic variables later
+%   in the algorithm.
+
+\item The goal uses the reified list of arguments as the lookup key in
+  the goal constructor's local table, which is an association list of
+  \mbox{\scheme|`(,key . ,cache)|} pairs.
+\item If the key is not in the table's association list we are making
+  a new master call.  The goal constructs a new cache
+  containing the empty list.  The goal then side-effects the local
+  table, extending it with a pair containing the new key and cache.
+  Next, a ``fake'' subgoal is added to the body of the goal.
+  When passed a substitution, this ``fake'' goal checks if the answer
+  term about to be cached is equivalent to an existing answer term in the
+  cache; if so, the fake goal fails, keeping the master call from
+  producing a duplicate answer.  Otherwise, the fake goal extends the
+  cache with the new answer term, then returns the answer substitution
+  as a singleton stream\footnote{This singleton stream is actually a
+    \emph{waiting stream}, described in
+    section~\ref{tablingcaseinf}.}.
+\item If, on the other hand, the key is found in the table's
+  association list, we are making a slave call.  Instead of re-running
+  the body of the goal, we reuse the tabled answers from the
+  corresponding master call.  The slave call produces a stream of
+  answer substitutions by unifying, in the current substitution,
+  \scheme|ansv*| with each cached answer term.  Due to miniKanren's
+  interleaving search, a master call may not produce all of its
+  answers immediately.  Therefore, the answer stream produced by a
+  slave call may need to suspend periodically, ``awakening'' when the
+  master call produces new answer terms for the slave to consume.
+\end{enumerate}
+
+Recall that the algorithm reaches a fixed point when all the master
+calls have finished producing answers, and each slave call has
+consumed every answer term produced by its corresponding master call.
+In the process of consuming a cached answer term, a slave call might
+make a new master or slave call.
+
+\section{Waiting Streams}\label{tablingcaseinf}
+
+We extend the \mbox{\scheme|a-inf|} stream datatype described in
+section~\ref{goalconstructors} with a new variant: a \scheme{waiting} stream \scheme|w|
+is a non-empty proper list \mbox{\scheme|`(,ss ,ss* ...)|} of suspended streams.
+The waiting stream datatype allows us to express a disjunction of suspended streams; just
+as importantly, the datatype makes it easier to recognize when a fixed point has been reached,
+as described below.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define w? (lambda (x) (and (pair? x) (ss? (car x)))))
+\end{schemedisplay}
+
+\noindent New singleton waiting streams are created in the
+\scheme|reuse| function described in section~\ref{tablingmainimpl}.
+The only way to create a waiting stream containing multiple suspended
+streams is through disjunction (see the definition of \scheme|mplus|
+below).
+
+The addition of the waiting stream type requires us to extend the
+definition of \scheme|case-inf| from section~\ref{goalconstructors}
+with a new \scheme|w| clause.
+
+\schemedisplayspace
+\begin{schemedisplay} 
+(define-syntax case-inf
+  (syntax-rules ()
+    ((_ e (() e0) ((f^) e1) ((w) ew) ((a^) e2) ((a f) e3))
+     (let ((a-inf e))
+       (cond
+         ((not a-inf) e0)
+         ((procedure? a-inf) (let ((f^ a-inf)) e1))
+         ((and (pair? a-inf) (procedure? (cdr a-inf)))
+          (let ((a (car a-inf)) (f (cdr a-inf))) e3))
+         ((w? a-inf) (w-check a-inf
+                              (lambda (f^) e1)
+                              (lambda () (let ((w a-inf)) ew))))
+         (else (let ((a^ a-inf)) e2)))))))
+\end{schemedisplay}
+
+The new clause of \scheme|case-inf| expands into a call to
+\scheme|w-check|, which takes a waiting stream \scheme|w|, a success
+continuation \scheme|sk|, and a failure continuation \scheme|fk|.
+\scheme|w-check| plays a critical role in finding the fixed point of a
+program.
+
+\scheme|w-check| looks in \scheme|w| for the first suspended stream
+\scheme|ss| whose cache contains new answer terms.  If none of the
+suspended streams contain unseen answer terms, \scheme|w-check|
+invokes the failure continuation.  Otherwise, \scheme|sk| is passed an
+\scheme|f|-type stream containing the new answers produced by
+\scheme|ss|, interleaved with answers from a new waiting stream
+containing the remaining suspended streams in \scheme|w|.
+
+% \scheme|w-check| determines if one of the suspended streams in
+% \scheme|w| has not yet handled all of the answer terms associated with
+% its cache.  If so, \scheme|sk| is passed a new stream that contains
+% the new answers, interleaved with a new \scheme|w| containing all the
+% other suspended streams.  If none of the suspended streams contain
+% unseen answer terms, the failure continuation \scheme|fk| is invoked.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define w-check
+  (lambda (w sk fk)
+    (let loop ((w w) (a '()))
+      (cond
+        ((null? w) (fk))
+        ((ss-ready? (car w))
+         (sk (lambdaf@ ()
+               (let ((f (ss-f (car w)))
+                     (w (append (reverse a) (cdr w))))
+                 (if (null? w) (f) (mplus (f) (lambdaf@ () w)))))))
+        (else (loop (cdr w) (cons (car w) a)))))))
+\end{schemedisplay}
+
+The \scheme|w| case of \scheme|case-inf| actually represents
+\emph{two} cases: in the first case, the waiting stream can produce
+new answers; in the second case, the stream cannot produce new
+answers, although it may be able to in the future.
+
+In the first case, \scheme|w| contains a suspended stream \scheme|ss|
+ready to produce new answers.  \scheme|w-check| creates a new
+\scheme|f|-type stream encapsulating the answers from \scheme|ss|,
+along with the remainder of the \scheme|w| stream (if non-empty).
+\scheme|case-inf| then processes this stream as it would any other
+\scheme|f|: by evaluating the expression \scheme|e1| in an extended
+environment in which \scheme|f^| is bound to the new stream. To see
+this more clearly, think of the \scheme|sk| passed to
+\scheme|w-check|, \mbox{\scheme|(lambda (f^) e1)|}, as the equivalent
+\mbox{\scheme|(lambda (a-inf) (let ((f^ a-inf)) e1))|}, which exactly
+mirrors the code produced in the \scheme|f^| case of
+\scheme|case-inf|.
+
+In the second case, none of the suspended streams in \scheme|w| can
+produce new answers.  We have therefore reached a fixed point, at
+least temporarily; this case is analogous to the \scheme|()| case of
+\scheme|case-inf|.  Unlike in the \scheme|()| case, however,
+\scheme|w| might produce answers later.  \scheme|ew| is evaluated in
+an extended environment in which \scheme|w| is bound to the waiting
+stream---this is made most clear in the \scheme|w| case of
+\scheme|mplus|, below.
+
+% In the second case, the waiting stream cannot (yet) produce more
+% answers---therefore, this case is most similar to the () case of
+% case-inf.  However, unlike in the () case, there is still the possibility
+% that the waiting stream will produce more answers later on.
+
+Since we have added a clause to \scheme|case-inf| we must redefine
+\scheme|take|, \scheme|bind|, and \scheme|mplus|.  These functions
+differ from their definitions in section~\ref{goalconstructors} only
+in the addition of the \scheme|w| case.  However, the \scheme|w| case
+implicitly uses the expression specified for the \scheme|f| case as
+well\footnote{Or the \scheme|f^| case, in the definition of
+  \scheme|mplus|.}, if \scheme|w| contains a suspended stream ready to
+produce new answers.  In this event, a new \scheme|f|-type stream is
+constructed that contains not only these new answers but also the
+remaining suspended streams in \scheme|w|; this new stream is then
+handled by the \scheme|f| case of \scheme|case-inf|.
+
+\newpage
+
+Here is the updated definition of \scheme|take|.
+
+\schemedisplayspace
+\begin{schemedisplay} 
+(define take
+  (lambda (n f)
+    (if (and n (zero? n)) 
+      '()
+      (case-inf (f)
+        (() '())
+        ((f) (take n f))
+        ((w) '())
+        ((a) a)
+        ((a f) (cons (car a) (take (and n (- n 1)) f)))))))
+\end{schemedisplay}
+
+\noindent 
+If \scheme|w| contains a suspended stream ready to produce a new
+stream of answers, this new stream is handled by the \scheme|f| case
+of \scheme|case-inf|.  Otherwise, we have reached a fixed
+point---therefore, \scheme|take| returns the empty list.
+
+Here is the updated definition of \scheme|bind|.
+
+\schemedisplayspace
+\begin{schemedisplay} 
+(define bind
+  (lambda (a-inf g)
+    (case-inf a-inf
+      (() (mzero))
+      ((f) (inc (bind (f) g)))
+      ((w) (map (lambda (ss)
+                  (make-ss (ss-cache ss) (ss-ansv* ss)
+                           (lambdaf@ () (bind ((ss-f ss)) g))))
+                w))
+      ((a) (g a))
+      ((a f) (mplus (g a) (lambdaf@ () (bind (f) g)))))))
+\end{schemedisplay}
+
+\noindent If \scheme|w| contains a suspended stream ready to produce a new
+stream of answers, this new stream is handled by the \scheme|f| case
+of \scheme|case-inf|.  Otherwise, the binding of answer substitutions
+to \scheme|g| must be delayed, because the streams in \scheme|w| are
+all suspended.  \scheme|bind| reconstructs the list \scheme|w|,
+pushing the bind operation into each rebuilt suspended stream.  If a
+stream is awakened later, it will then bind its new answers to
+\scheme|g|.
+
+Here is the updated definition of \scheme|mplus|.
+
+\schemedisplayspace
+\begin{schemedisplay} 
+(define mplus
+  (lambda (a-inf f)
+    (case-inf a-inf
+      (() (f))
+      ((f^) (inc (mplus (f) f^)))
+      ((w) (lambdaf@ () (let ((a-inf (f)))
+                          (if (w? a-inf)
+                              (append a-inf w)
+                              (mplus a-inf (lambdaf@ () w))))))
+      ((a) (choice a f))
+      ((a f^) (choice a (lambdaf@ () (mplus (f) f^)))))))
+\end{schemedisplay}
+
+\noindent If \scheme|w| contains a suspended stream ready to produce a
+new stream of answers, this new stream is handled by the \scheme|f|
+case of \scheme|case-inf|.  Otherwise, \scheme|mplus| returns a new
+\scheme|f|-type stream.  If the second argument to \scheme|mplus|
+produces a waiting stream \scheme|w^|, then \scheme|mplus| appends the
+lists \scheme|w^| and \scheme|w|, creating a single combined waiting
+stream.  If \scheme|mplus|'s second argument produces an
+\scheme|a-inf| that is \emph{not} a waiting stream, then \scheme|w| is
+``pushed'' to the back of the new stream.  Accumulating all suspended
+streams in a single waiting stream at the end of an \scheme|f|-type
+stream allows \scheme|w-check| to easily determine if a fixed point
+has been reached.
+
+\section{Extending and Abstracting Reification}\label{tablingreify}
+
+To avoid prematurely instantiating logic variables, the
+\scheme|master| and \scheme|reuse| procedures in
+section~\ref{tablingmainimpl} copy the list \scheme|argv| of arguments
+passed to the tabled goal constructor.  This operation is performed by the
+\scheme|reify-var| function, which is similar in spirit to Prolog's
+\mbox{{\tt copy\_term/2}}, but is implemented by a function rather than a
+user-level goal constructor.
+
+Our implementation of \scheme|reify-var| is identical to that of the
+\scheme|reify| function from Chapter~\ref{mkimplchapter}, except that
+unassociated variables are consistently replaced with newly created
+logic variables rather than with symbols.  We therefore abstract the
+reification operators, defining them in terms of the
+\scheme|make-reify| helper, which in turn uses an abstracted version
+of \scheme|reify-s|.
+
+\schemedisplayspace
+\begin{schemedisplay} 
+(define make-reify
+  (lambda (rep)
+    (lambda (v s)
+      (let ((v (walk* v s)))
+        (walk* v (reify-s rep v empty-s))))))
+
+(define reify (make-reify reify-name))
+
+(define reify-var (make-reify reify-v))
+
+(define reify-v
+  (lambda (n)
+    (var n)))
+
+(define reify-s
+  (lambda (rep v s)
+    (let ((v (walk v s)))
+      (cond
+        ((var? v) (ext-s-no-check v (rep (length s)) s))
+        ((pair? v) (reify-s rep (cdr v) (reify-s rep (car v) s)))
+        (else s)))))
+\end{schemedisplay}
+
+
+\section{Core Tabling Operators}\label{tablingmainimpl}
+
+We are now ready to define the core tabling operators.  The \scheme|tabled|
+user-level form creates a tabled goal constructor, complete with an empty local
+association list \scheme|table| that will contain \mbox{\scheme|`(,key . ,cache)|} pairs.
+Section~\ref{tablingalgorithm} describes the behavior of tabled goal constructors
+at a high level; most of the interesting work is performed in the
+\scheme|master| and \scheme|reuse| helpers, defined below.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define-syntax tabled
+  (syntax-rules ()
+    ((_ (x ...) g g* ...)
+     (let ((table '()))
+       (lambda (x ...)
+         (let ((argv (list x ...)))
+           (lambdag@ (s)
+             (let ((key (reify argv s)))
+               (cond
+                 ((assoc key table)
+                  => (lambda (key.cache) (reuse argv (cdr key.cache) s)))
+                 (else (let ((cache (make-cache '())))
+                         (set! table (cons `(,key . ,cache) table))
+                         ((exist () g g* ... (master argv cache)) s))))))))))))
+\end{schemedisplay}
+
+The \scheme|master| function is invoked during a master call, and
+returns a ``fake'' goal run at the end of the body of the tabled
+goal. This fake goal checks if the answer term about to be cached is
+equivalent to an answer term already in the cache.  If so, the call to
+the fake goal fails, to avoid producing a duplicate answer.
+Otherwise, the goal succeeds, caching the new answer term
+before returning the answer substitution.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define master
+  (lambda (argv cache)
+    (lambdag@ (s)
+      (and
+        (for-all
+          (lambda (ansv) (not (alpha-equiv? argv ansv s)))
+          (cache-ansv* cache))
+        (begin
+          (cache-ansv*-set! cache (cons (reify-var argv s) (cache-ansv* cache)))
+          s)))))
+\end{schemedisplay}
+
+\scheme|alpha-equiv?| returns true if \scheme|x| and \scheme|y|
+represent the same term, modulo consistent replacement of unassociated
+logic variables.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define alpha-equiv?
+  (lambda (x y s)
+    (equal? (reify x s) (reify y s))))
+\end{schemedisplay}
+
+\scheme|reuse| constructs a stream of answer substitutions for a slave
+call, using the cached answer terms from the corresponding master
+call.  Like \scheme|w-check|, \scheme|reuse| plays a critical role in
+calculating the fixed point of a program.  Each call to \scheme|loop|
+returns an \mbox{\scheme|`(,a . ,f)|}-type stream until all the answer
+terms in the cache have been consumed.  \scheme|reuse| then returns a
+waiting stream\footnote{This is the only code that introduces a new
+  waiting stream, as opposed to rebuilding or appending existing
+  waiting streams.} encapsulating a single suspended stream whose
+\scheme|f| calls the outer \scheme|fix| loop, consuming any answer
+terms produced by the master call while the stream was suspended.
+Invoking \scheme|f| restarts the search for a fixed point; to avoid
+divergence, \scheme|w-check| does not invoke the \scheme|f| of any
+suspended stream that does not contain unseen answer terms.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define reuse
+  (lambda (argv cache s)
+    (let fix ((start (cache-ansv* cache)) (end '()))
+      (let loop ((ansv* start))
+        (if (eq? ansv* end)
+            (list (make-ss cache start (lambdaf@ () (fix (cache-ansv* cache) start))))
+            (choice (subunify argv (reify-var (car ansv*) s) s)
+                    (lambdaf@ () (loop (cdr ansv*)))))))))
+\end{schemedisplay}
+
+\scheme|reuse| depends on \scheme|subunify| to unify the list of
+unreified arguments in the slave call with a copy of each cached
+answer term.  Since we know that the unification will succeed, the
+definition of \scheme|subunify| is shorter and more efficient than the
+definition of \scheme|unify| from Chapter~\ref{mkimplchapter}.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define subunify
+  (lambda (arg ans s)
+    (let ((arg (walk arg s)))
+      (cond
+        ((eq? arg ans) s)
+        ((var? arg) (ext-s-no-check arg ans s))
+        ((pair? arg) (subunify (cdr arg) (cdr ans)
+                       (subunify (car arg) (car ans) s)))
+        (else s)))))
+\end{schemedisplay}
+
+The code in this chapter is short but extremely subtle.  This subtlety
+is due to the use of side effects, interaction of multiple functions
+to calculate fixed points, and introduction of the suspended stream
+and waiting stream datatypes.  Understanding how the manipulation of
+waiting streams by \scheme|mplus| makes the definition of
+\scheme|w-check| possible is especially subtle.  To fully appreciate
+this last point, the reader is encouraged to modify the implementation
+by replacing all uses of waiting streams with suspended streams, and
+then ascertain why many tabled programs diverge as a result.

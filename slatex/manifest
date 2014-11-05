@@ -1,0 +1,31 @@
+;manifest
+;SLaTeX Version 2.4
+;List of files provided in the SLaTeX distribution
+;(c) Dorai Sitaram
+;ds26@gte.com
+
+COPYING
+README
+INSTALL
+history
+manifest
+version.tex
+makefile
+
+;documentation
+slatxdoc.tex
+slatxdoc.bib
+slatxdoc.t2p
+
+tex2page.tex
+defun.tex
+
+;style files
+slatex.sty
+cltl.sty
+
+slatex-src.scm
+
+;configure
+scmxlate-slatex-src.scm
+dialects/*.scm

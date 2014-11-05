@@ -1,0 +1,1340 @@
+%\chapter{Advanced Techniques V:  Ferns-based miniKanren}\label{fernschapter}
+\chapter{Techniques IV:  Ferns}\label{fernschapter}
+
+In this chapter we provide a bottom-avoiding generalization of core
+miniKanren using \emph{ferns} \cite{ferns81}, a shareable data
+structure designed to avoid divergence.
+
+The chapter is organized as follows. Section~\ref{fernsintro}
+introduces the ferns data structure and shows examples of familiar
+recursive functions using ferns.  Section~\ref{Sharing} describes the
+promotion algorithm \cite{Friedman79b} that characterizes the
+necessary sharing properties of ferns.  Section~\ref{lp-system}
+defines bottom-avoiding logic programming goal constructors,
+corresponding to core miniKanren with non-interleaving search.
+Chapter~\ref{fernsimpl} presents a complete \emph{shallow
+  embedding} \cite{Boulton92tassel.experience} of the ferns data
+structure and related operators.
+
+\section{Introduction to Ferns}\label{fernsintro}
+
+Ferns are constructed with \scheme|cons| and \scheme|frons|,
+originally called \textbf{frons} \cite{DFried80}, and accessed by
+\scheme|fcar| and \scheme|fcdr|, generalizations of \scheme|car| and
+\scheme|cdr|, respectively.  Ferns built with \scheme|frons| are like
+streams in that the \emph{evaluation} of elements is delayed,
+permitting unbounded data structures.  In contrast to streams, the
+\emph{ordering} of elements is also delayed: convergent values form
+the prefix in some unspecified order, while divergent values form the
+suffix.
+
+We begin with several examples that illustrate the
+properties of ferns, showing their similarities to
+and differences from traditional lists and streams.  Later, we include
+examples that show that a natural recursive style can be used when
+programming with ferns and point out the advantages ferns afford the
+user.
+
+\subsection{Two Simple Programs}
+
+Convergent elements of a fern form its prefix in some unspecified
+order. For example, evaluating the expression
+
+\schemedisplayspace
+\schemeinput{fernscode/intro-1}
+
+\noindent 
+prints either \schemeresult|010| or \schemeresult|101|,
+demonstrating that the order of values within a fern is not specified in
+advance but remains consistent once determined, while
+
+\schemedisplayspace
+\schemeinput{fernscode/intro-2}
+
+\noindent returns \mbox{\schemeresult|(720 . 120)|}, demonstrating
+that accessing a fern avoids divergence as much as possible.
+(\scheme|bottom| is any expression whose evaluation diverges.)  In the
+latter example, each fern contains only one convergent value; taking
+the \scheme|fcdr| of \scheme|s1| or the \scheme|fcadr| of \scheme|s2|
+results in divergence.
+
+Ferns are \emph{shareable} data structures; sharing, combined with
+delayed ordering of values, can result in surprising behavior.  For
+example, consider these expressions:
+
+\schemedisplayspace
+\schemeinput{fernscode/not-so-weird-sharing}
+
+\noindent and
+
+
+\schemedisplayspace
+\schemeinput{fernscode/weird-sharing-1}
+
+\noindent
+The first expression must evaluate to \mbox{\schemeresult|(1 2
+  2)|}.  The second expression may also return this value---as
+expected, the car of \scheme|b| would then be equal to the cadr of
+\scheme|a|.  The second expression might instead return
+\mbox{\schemeresult|(2 1 2)|} however; in this case, the car of \scheme|b|
+would be equal to the car of \scheme|a| rather than to its cadr.
+Section~\ref{Sharing} discusses sharing in detail.
+
+\subsection{Recursion}\label{fernsRecursiveExamples}
+
+We now present examples of the use of ferns in simple recursive
+functions. Consider the definition of \scheme|ints-bottom|\footnote{\scheme|timed-lambda| is identical to
+  \scheme|lambda|, except it creates preemptible procedures. 
+(See Appendix~\ref{nestable-engines}.)}.
+
+\schemedisplayspace
+\schemeinput{fernscode/ints}
+
+\noindent Then \mbox{\scheme|(fcaddr (ints-bottom 0))|} 
+could return any non-negative integer, whereas a
+stream version would return \schemeresult|2|.
+
+%But wait---there's more!
+
+% \schemedisplayspace
+%\schemeinput{fernscode/code/ints-bottom}
+
+There is a tight relationship between ferns and lists, since every
+cons pair is a fern.  The empty
+fern is also represented by \scheme|`()|, and
+\mbox{\scheme|(pair? (frons e1 e2))|} returns \schemeresult|#t| for
+all \scheme|e1| and \scheme|e2|.  After replacing the list constructor
+\scheme|cons| with the fern constructor \scheme|frons|, many recursive
+functions operating on lists avoid divergence.  For example,
+\scheme|map-bottom| is defined
+by replacing \scheme|cons| with \scheme|frons|, \scheme|car| with
+\scheme|fcar|, and \scheme|cdr| with \scheme|fcdr| in the definition of
+\scheme|map|, and can map a function over an unbounded fern:
+% inlined this from code/map-example.ss
+the value of \mbox{\scheme|(fcaddr (map-bottom add1 (ints-bottom 0)))|} can be any positive integer.
+
+
+%The similarities between ferns and the more traditional list and
+%stream data structures make it possible to write bottom-avoiding
+%functions in the natural recursive style---indeed, this ability to
+%define functions in a familiar style is one of the advantages of using
+%ferns.
+
+Ferns work especially well with \emph{annihilators}. True values are
+annihilators for \scheme|or-bottom|
+
+\schemedisplayspace
+\schemeinput{fernscode/or-fn}
+
+\noindent which searches in a fern for a true convergent value
+and avoids divergence if it finds one:
+\mbox{\scheme|(or-bottom (fern bottom (odd? 1) (! 5) bottom (odd? 0)))|}
+returns some true value, where \scheme|fern| is defined as follows.
+
+\schemedisplayspace
+\schemeinput{fernscode/fern}
+
+% We get additional benefit when annihilators are common. Scheme's
+% \scheme|or|, for example, uses any true value as an annihilator. We
+% can define \scheme|or-bottom|, similar to \scheme|or|, that takes any
+% number of expressions and returns a true value nondeterministically.
+% Thus, \scheme|(or-bottom (odd? 0) bottom (! 5) (odd? 1) bottom)|
+% returns either \scheme|#t| or \scheme|120|, both of which
+% are true values in Scheme. \scheme|or-bottom| is defined as a macro
+% that wraps its arguments in \scheme|fern| before passing them to a
+% recursive auxiliary for two reasons: first, to make the auxiliary
+% lazy, and second, to allow the auxiliary to choose convergent
+% arguments before divergent ones.  This strategy will be used again in
+% Section~\ref{mplus-bottom-and-bind-bottom} to define \scheme|mplus-bottom|.
+
+%\schemedisplayspace
+%\schemeinput{fernscode/code/or-fn}
+
+\noindent
+Let us define \scheme|append-bottom| for ferns. 
+
+\schemedisplayspace
+\schemeinput{fernscode/append}
+
+\noindent
+To observe the behavior of \scheme|append-bottom|, we define \scheme|take-bottom| whose
+first argument is either \scheme|#f| (all results) or $n > 0$ (no more than $n$ results).
+
+\schemedisplayspace
+\schemeinput{fernscode/take}
+
+\noindent 
+When determining the $n$th value, it is necessary to avoid taking the
+\scheme|fcdr| after the $n$th value is determined, since it is that \scheme|fcdr|
+that might not terminate and we already have $n$ results.
+
+The definition of \scheme|append-bottom| appears to work as expected:
+
+\wspace
+\noindent
+\scheme|(take-bottom 2 (append-bottom (fern 1) (fern bottom 2)))| \schemeresult|=> (1 2)|.
+\wspace
+
+\noindent Moving \scheme|bottom| from the second argument to the
+first, however, reveals a problem:
+
+\wspace
+\noindent
+\scheme|(take-bottom 2 (append-bottom (fern bottom 1) (fern 2)))| \schemeresult|=> bottom|.
+\wspace
+
+\noindent
+Even though the result of the call to
+\scheme|append-bottom| should contain two convergent elements, taking the first
+two elements of that result diverges. This is because the
+definition of \scheme|append-bottom| requires that \scheme|s1| be completely
+exhausted before any elements from \scheme|s2| can appear in the result.
+If one of the elements of \scheme|s1| is \scheme|bottom|, then no
+element from \scheme|s2| will ever appear.  The same is true if
+\scheme|s1| contains an unbounded number of convergent elements: since
+\scheme|s1| is never null, the result will never contain elements from
+\scheme|s2|.  With the definition of \scheme|mplus-bottom| in
+Section~\ref{mplus-bottom-and-bind-bottom}, it becomes clear that the solution to these problems is to
+interleave the elements from \scheme|s1| and \scheme|s2| in the
+resulting fern as in the next example.
+
+Functional programs often share rather than copy data, and ferns are
+designed to encourage this programming style. Consider a procedure to
+compute the Cartesian product of two ferns:
+
+\schemedisplayspace
+\schemeinput{fernscode/cartesian}
+
+\schemeinput{fernscode/cartesian-example}\schemeresult|~> `((a . x) (a . y) (b . x) (a . z) (b . y) (b . z))|
+\belowcodeskip \medskipamount
+\medskip
+
+\noindent
+where \schemeresult|~>| indicates \emph{one} of the possible values.
+This definition ensures that the resulting fern shares
+elements with the ferns passed as arguments. Many references to a
+particular element may be made without repeating computations, hence the
+expression
+
+\wspace
+
+\noindent
+\scheme|(take-bottom 2 (Cartesian-product-bottom (fern (begin (display #t) 5)) (fern 'a bottom 'b)))|
+
+\tspace
+
+\noindent
+\schemeresult|~> `((5 . a) (5 . b))|
+\belowcodeskip \medskipamount
+\medskip
+
+\noindent prints \schemeresult|#t| \emph{exactly once}.
+(There are more examples of the use of ferns in~\citet{Johnson-83}, \citet{Filman-Friedman-84}, and~\citet{Jeschke-PHD-95}.)
+
+In the next section we look at how the sharing properties of ferns are
+maintained alongside bottom-avoidance.
+
+\section{Sharing and Promotion}\label{Sharing}
+
+In this section, we provide examples and a high-level description of
+the \emph{promotion algorithm} of Friedman and Wise~\cite{Friedman79b}. 
+The values in a fern are computed and
+\emph{promoted} across the fern while ensuring that the correct values
+are available from each subfern, \scheme|bottom|'s are avoided, and
+non-\scheme|bottom| values are computed only once.
+% A proper fern is either the empty list or a pair whose cdr is another fern. 
+Ferns have structure, and there may be references to more than one
+subfern of a particular fern. Consider the example expression
+
+\schemedisplayspace
+\schemeinput{fernscode/sharing-1}
+
+\begin{schemeresponse}~> `((6 120 720) (6 120 720) (6 720) (720))
+\end{schemeresponse}
+
+\noindent assuming \scheme|list| evaluates its arguments
+left-to-right.  Importantly,
+accessing \scheme|delta| cannot retrieve values in the prefix of the
+enclosing fern \scheme|alpha|. We now describe in detail how the
+result of \mbox{\scheme|(take-bottom 3 alpha)|} is determined along with
+the necessary changes to the fern data structure during this
+process. Whenever we encounter a choice, we shall assume a choice
+consistent with the value returned in the example.
+
+During the first access of \scheme|alpha| the cdrs are evaluated, as
+indicated by the arrows in Figure~\ref{fig:solid}a.
+Figure~\ref{fig:solid}b depicts the data structure after
+\mbox{\scheme|(fcar alpha)|} is evaluated. We assume that, of the
+possible values for \mbox{\scheme|(fcar alpha)|}, namely
+\scheme|bottom| (which is never chosen), \mbox{\scheme|(! 5)|},
+\mbox{\scheme|(! 3)|}, and \mbox{\scheme|(! 6)|}, the value of
+\mbox{\scheme|(! 3)|} is chosen and promoted. Since the value
+of \mbox{\scheme|(! 3)|} might be a value for \mbox{\scheme|(fcar beta)|}
+ and \mbox{\scheme|(fcar gamma)|}, we replace the cars of all
+three pairs with the value of \mbox{\scheme|(! 3)|}, which
+is \schemeresult|6|. We replace the cdrs of \scheme|alpha| and
+\scheme|beta| with new frons pairs containing \scheme|bottom| and
+\mbox{\scheme|(! 5)|}, which were not chosen. The new frons pairs are
+linked together, and linked at the end to the old cdr of
+\scheme|gamma|. Thus \scheme|alpha|, \scheme|beta|, and \scheme|gamma|
+become a fern with \schemeresult|6| in the car and a fern of the
+rest of their original possible values in their cdrs.  As a result of
+the promotion, $\alpha$, $\beta$, and $\gamma$ become cons pairs,
+represented in the figures by rectangles.
+
+Figure~\ref{fig:solid}c depicts the data structure after
+\mbox{\scheme|(fcadr alpha)|} is evaluated. This time,
+\mbox{\scheme|(! 5)|} is chosen from \scheme|bottom|, \mbox{\scheme|(! 5)|}, 
+and \mbox{\scheme|(! 6)|}.  Since the value of \mbox{\scheme|(! 5)|} is
+also a possible value for \mbox{\scheme|(fcadr beta)|}, we replace
+the cadrs of both \scheme|alpha| and \scheme|beta| with the value of
+\mbox{\scheme|(! 5)|}, which is \schemeresult|120|, and replace the cddr of
+\scheme|alpha| with a frons pair containing the \scheme|bottom| that
+was not chosen and a pointer to \scheme|delta|. The cddr of \scheme|beta| points to \scheme|delta|; no
+new fern with remaining possible values is needed because the value
+chosen for \mbox{\scheme|(fcadr beta)|} was the first value
+available. As before, the pairs containing values become cons pairs.
+
+% \renewcommand{\figurename}{Program}
+
+% \begin{figure}[H]
+% \begin{schemeregion}
+% \schemeinput{fernscode/code/sharing-1}
+% \end{schemeregion}
+% \caption{Program that constructs and accesses fern $\alpha$.\label{fig:code/sharing-1}}
+% \end{figure}
+
+\renewcommand{\figurename}{Figure}
+\addtocounter{figure}{0}
+
+% \newcommand{\ahwd}{4}
+% \newcommand{\ahht}{3}
+% \newcommand{\dahwd}{5}
+% \newcommand{\hahht}{2}
+% \newcommand{\thahht}{1}
+% \newcommand{\dahht}{6}
+% \newcommand{\namegap}{8}
+% \newcommand{\ftxht}{12}
+% \newcommand{\ctxht}{10}
+% \newcommand{\ebxwd}{3}
+% \newcommand{\qbxwd}{10}
+% \newcommand{\hbxwd}{20}
+% \newcommand{\sbxwd}{6}
+% \newcommand{\fbxwd}{40}
+
+\newcommand{\ahwd}{4}
+\newcommand{\ahht}{3}
+\newcommand{\dahwd}{5}
+\newcommand{\hahht}{2}
+\newcommand{\thahht}{1}
+\newcommand{\dahht}{6}
+\newcommand{\namegap}{8}
+\newcommand{\ftxht}{10}
+\newcommand{\ctxht}{8}
+\newcommand{\ebxwd}{2}
+\newcommand{\qbxwd}{7}
+\newcommand{\hbxwd}{14}
+\newcommand{\sbxwd}{4}
+\newcommand{\fbxwd}{28}
+
+
+\Define\namebox(1) {
+  \Move(0,\hbxwd) 
+  \Move(0,\namegap) 
+  \Text(--#1--) 
+  \Move(0,-\namegap) 
+  \Move(0,-\hbxwd)
+}
+
+\Define\namefig(3) { % name, half width, height
+  \Move(#2,-#3)
+  \Move(0,-\namegap)
+  \Text(--$\mbox{(#1)}$--)
+  \Move(0,\namegap)
+  \Move(-#2,#3)
+}
+
+\newcommand{\boxtext}{Z}
+
+\Define\fronsbox {
+  \Line(0,\hbxwd) 
+  \MarkLoc(p1)
+  \Move(\qbxwd,\qbxwd)
+  \MarkLoc(q1)
+  \Move(\hbxwd,-\hbxwd)
+  \MarkLoc(q2)
+  \Move(\qbxwd,\qbxwd)
+  \MarkLoc(p2) 
+  \Curve(p1,q1,q2,p2) 
+  \Line(0,-\hbxwd)
+  \MarkLoc(p1)
+  \Move(-\qbxwd,-\qbxwd)
+  \MarkLoc(q1)
+  \Move(-\hbxwd,\hbxwd)
+  \MarkLoc(q2)
+  \Move(-\qbxwd,-\qbxwd)
+  \MarkLoc(p2)
+  \Curve(p1,q1,q2,p2)
+  \Move(\qbxwd,\ftxht)
+  \Text(--\boxtext--)
+  \Move(\qbxwd,-\ftxht)
+  \Line(0,\hbxwd)
+  \Move(\qbxwd,-\qbxwd)
+}
+
+\Define\arrowhead {
+  \Move(-\ahwd,-\ahht) \Line(\ahwd,\ahht)
+  \Move(-\ahwd,\ahht) \Line(\ahwd,-\ahht)
+  \Move(1,0)
+}
+
+\Define\rightdotted {
+  \Do(0,\qbxwd){\Line(1,0)\Move(2,0)}
+  \arrowhead
+  \Move(0,-\qbxwd)
+}
+
+\Define\rightsolid {
+  \Do(0,\qbxwd){\Line(3,0)}
+  \arrowhead
+  \Move(0,-\qbxwd)
+}
+
+\Define\boxnil {
+  \Move(-\qbxwd,-\qbxwd)
+  \Line(\hbxwd,\hbxwd)
+  \Move(0,-\qbxwd)
+}
+
+\Define\dottednil {
+  \Move(-\qbxwd,-\qbxwd)
+  \Do(0,\sbxwd){\Line(1,1)\Move(2,2)}
+  \Move(0,-\qbxwd)
+}
+
+\Define\blankbox {
+  \Move(\hbxwd,0)
+  \Move(\qbxwd,0)
+  \Do(0,\qbxwd){\Move(3,0)}
+  \Move(1,0)
+}
+
+\Define\consbox {
+  \Line(0,\hbxwd) 
+  \Line(\fbxwd,0)
+  \Line(0,-\hbxwd)
+  \Line(-\fbxwd,0)
+  \Move(\qbxwd,\ctxht)
+  \Text(--\boxtext--)
+  \Move(\qbxwd,-\ctxht)
+  \Line(0,\hbxwd)
+  \Move(\qbxwd,-\qbxwd)
+}
+
+\Define\downhead {
+  \Move(-\ahht,\ahwd) \Line(\ahht,-\ahwd)
+  \Move(\ahht,\ahwd) \Line(-\ahht,-\ahwd)
+  \Move(0,-1)
+}
+
+\Define\downsolid {
+  \Line(0,-\hbxwd)
+  \Line(0,-\qbxwd)
+  \downhead
+  \Move(\qbxwd,0)
+  \Move(-\fbxwd,-\hbxwd)
+}
+
+\Define\longdownsolid {
+  \Line(0,-\hbxwd)
+  \Line(0,-\qbxwd)
+  \Line(0,-\ebxwd)
+  \downhead
+  \Move(\qbxwd,\ebxwd)
+  \Move(-\fbxwd,-\hbxwd)
+}
+
+\Define\blankleft {
+  \Move(-\hbxwd,0)
+  \Move(-\qbxwd,0)
+  \Do(0,\qbxwd){\Move(-3,0)}
+  \Move(-1,0)
+}
+
+\Define\blankup {
+  \Move(0,\fbxwd)
+  \Move(0,1)
+}
+
+\Define\rightuphead {
+  \Move(-\dahwd,-\hahht) \Line(\dahwd,\hahht)
+  \Move(0,-\dahht) \Line(0,\dahht)
+}
+
+\Define\tiltedrightuphead {
+  \Move(-\dahwd,-\thahht) \Line(\dahwd,\thahht)
+  \Move(-1,-\dahht) \Line(1,\dahht)
+}
+
+\Define\rightupdoublesolid {
+  \MarkLoc(p1)
+  \Move(\fbxwd,0)
+  \MarkLoc(q1)
+  \Move(\fbxwd,0)
+  \MarkLoc(q2)
+  \blankup
+  \Move(\hbxwd,-\qbxwd)
+  \Move(-1,-1)
+  \MarkLoc(p2)
+  \Curve(p1,q1,q2,p2)
+  \rightuphead
+  \Move(1,1)
+}
+
+\Define\rightupdoublelonger {
+  \MarkLoc(p1)
+  \Move(\fbxwd,0)
+  \MarkLoc(q1)
+  \Move(\fbxwd,0)
+  \MarkLoc(q2)
+  \blankup
+  \Move(\hbxwd,-\qbxwd)
+  \Move(4,4)
+  \MarkLoc(p2)
+  \Curve(p1,q1,q2,p2)
+  \rightuphead
+  \Move(-4,-4)
+}
+
+\Define\blankdown {
+  \Move(0,-\fbxwd)
+}
+
+\Define\rightuptriplesolid {
+  \MarkLoc(p1)
+  \blankbox
+  \blankbox
+  \MarkLoc(q1)
+  \MarkLoc(q2)
+  \Do(0,\qbxwd){\Move(3,0)}
+  \Move(1,0)
+  \blankup
+  \Move(0,\hbxwd)
+  \Move(0,\qbxwd)
+  \Move(-3,0)
+  \MarkLoc(p2)
+  \Curve(p1,q1,q2,p2)
+% \rightuphead
+  \Move(3,0)
+  \blankleft \blankleft \blankdown
+}
+
+
+\vspace{20pt}
+
+\Define\edown {
+% \Line(0,-\hbxwd)
+% \Line(0,-\qbxwd)
+  \Do(0,\qbxwd){\Line(0,-2)}
+  \downhead
+  \Move(0,-1)
+}
+
+\Define\unedown {
+  \Move(0,1)
+  \Move(0,1)
+  \Do(0,\qbxwd){\Move(0,2)}
+% \Move(0,\qbxwd)
+% \Move(0,\hbxwd)
+}
+
+\newcommand\egap{3}
+
+\Define\lengine {
+  \edown
+  \Move(\egap,0)
+  \Line(-\hbxwd,0)
+  \Line(0,-\hbxwd)
+  \Line(\qbxwd,0)
+  \Move(0,\qbxwd)
+  \Text(--\boxtext--)
+  \Move(0,-\qbxwd)
+  \Line(\qbxwd,0)
+  \Line(0,\hbxwd)
+  \Move(-\egap,0)
+  \unedown
+}
+
+\Define\rengine {
+  \edown
+  \Move(-\egap,0)
+  \Line(\hbxwd,0)
+  \Line(0,-\hbxwd)
+  \Line(-\qbxwd,0)
+  \Move(0,\qbxwd)
+  \Text(--\boxtext--)
+  \Move(0,-\qbxwd)
+  \Line(-\qbxwd,0)
+  \Line(0,\hbxwd)
+  \Move(\egap,0)
+  \unedown
+}
+
+\Define\nodownrengine {
+  \Move(0,-\hbxwd)
+  \Move(0,-\qbxwd)
+  \Move(0,-2)
+  \Move(-\egap,0)
+  \Line(\hbxwd,0)
+  \Line(0,-\hbxwd)
+  \Line(-\qbxwd,0)
+  \Move(0,\qbxwd)
+  \Text(--\boxtext--)
+  \Move(0,-\qbxwd)
+  \Line(-\qbxwd,0)
+  \Line(0,\hbxwd)
+  \Move(\egap,0)
+  \Move(0,2)
+  \Move(0,\qbxwd)
+  \Move(0,\hbxwd)
+}
+
+\Define\efronsbox {
+  \Line(0,\hbxwd) 
+  \MarkLoc(p1)
+  \Move(\qbxwd,\qbxwd)
+  \MarkLoc(q1)
+  \Move(\hbxwd,-\hbxwd)
+  \MarkLoc(q2)
+  \Move(\qbxwd,\qbxwd)
+  \MarkLoc(p2) 
+  \Curve(p1,q1,q2,p2) 
+  \Line(0,-\hbxwd)
+  \MarkLoc(p1)
+  \Move(-\qbxwd,-\qbxwd)
+  \MarkLoc(q1)
+  \Move(-\hbxwd,\hbxwd)
+  \MarkLoc(q2)
+  \Move(-\qbxwd,-\qbxwd)
+  \MarkLoc(p2)
+  \Curve(p1,q1,q2,p2)
+  \Move(\qbxwd, \qbxwd)
+  \lengine
+  \Move(\qbxwd, -\qbxwd)
+  \Line(0,\hbxwd)
+  \Move(\qbxwd,-\qbxwd)
+}
+
+\Define\rightunright{
+  \Do(0,\qbxwd){\Line(3,0)}
+  \arrowhead
+  \Move(-1,0)
+  \Do(0,\qbxwd){\Move(-3,0)}
+}
+
+%%\enlargethispage{20pt}
+
+\renewcommand\egap{7}
+
+\begin{figure}[h]
+
+  \wspace
+
+  \wspace  
+
+  \wspace
+  
+\begin{schemeregion}
+\begin{picture}(160,60)(0,-60)
+\Draw\PenSize(1pt)
+\namefig(a,80,45)
+\namebox(\scheme|alpha|)
+\renewcommand{\boxtext}{\scheme|bottom|}
+\efronsbox\rightsolid
+\namebox(\scheme|beta|)
+\renewcommand{\boxtext}{\scheme|! 5|}
+\efronsbox\rightsolid
+\namebox(\scheme|gamma|)
+\renewcommand{\boxtext}{\scheme|! 3|}
+\efronsbox\rightsolid
+\namebox(\scheme|delta|)
+\renewcommand{\boxtext}{\scheme|! 6|}
+\efronsbox\boxnil
+\EndDraw
+\end{picture}
+\end{schemeregion}
+
+\begin{schemeregion}
+\begin{picture}(160,0)(-180,-70)
+\Draw\PenSize(1pt)
+\namefig(b,80,45)
+\namebox(\scheme|alpha|)
+\renewcommand{\boxtext}{\schemeresult|six|}
+\consbox\longdownsolid
+\renewcommand{\boxtext}{\scheme|bottom|}
+\efronsbox\rightsolid
+\renewcommand{\boxtext}{\scheme|! 5|}
+\efronsbox\rightupdoublesolid
+\blankleft \blankleft \Move(-1,0)
+\namebox(\scheme|beta|)
+\renewcommand{\boxtext}{\schemeresult|six|}
+\consbox\longdownsolid
+\blankup \blankbox
+\namebox(\scheme|gamma|)
+\renewcommand{\boxtext}{\schemeresult|six|}
+\consbox\rightsolid
+\namebox(\scheme|delta|)
+\renewcommand{\boxtext}{\scheme|! 6|}
+\efronsbox\boxnil
+\EndDraw
+\end{picture}
+\end{schemeregion}
+
+\begin{schemeregion}
+\begin{picture}(160,110)(0,-90)
+\Draw\PenSize(1pt)
+\namefig(c,80,95)
+\namebox(\scheme|alpha|)
+\renewcommand{\boxtext}{\schemeresult|six|}
+\consbox\downsolid
+\renewcommand{\boxtext}{\schemeresult|onetwenty|}
+\consbox\longdownsolid
+\renewcommand{\boxtext}{\scheme|bottom|}
+\efronsbox\rightuptriplesolid
+\renewcommand{\boxtext}{\schemeresult|onetwenty|}
+\consbox\rightupdoublesolid
+\blankleft \blankleft
+\namebox(\scheme|beta|)
+\renewcommand{\boxtext}{\schemeresult|six|}
+\consbox\downsolid
+\blankup \blankbox
+\namebox(\scheme|gamma|)
+\renewcommand{\boxtext}{\schemeresult|six|}
+\consbox\rightsolid
+\namebox(\scheme|delta|)
+\renewcommand{\boxtext}{\scheme|! 6|}
+\efronsbox\boxnil
+\EndDraw
+\end{picture}
+\end{schemeregion}
+
+\begin{schemeregion}
+\begin{picture}(160,0)(-180,-100)
+\Draw\PenSize(1pt)
+\namefig(d,80,95)
+\namebox(\scheme|alpha|)
+\renewcommand{\boxtext}{\schemeresult|six|}
+\consbox\downsolid
+\renewcommand{\boxtext}{\schemeresult|onetwenty|}
+\consbox\downsolid
+%\renewcommand{\boxtext}{\schemeresult|720|}
+\renewcommand{\boxtext}{\schemeresult|seventwenty|}
+\consbox\longdownsolid
+\renewcommand{\boxtext}{\scheme|bottom|}
+\efronsbox\boxnil
+\blankup
+\Move(\hbxwd,\hbxwd)
+\Move(\qbxwd,\qbxwd)
+\Move(-3,1)
+\renewcommand{\boxtext}{\schemeresult|onetwenty|}
+\consbox\rightupdoublesolid
+\blankleft \blankleft
+\namebox(\scheme|beta|)
+\renewcommand{\boxtext}{\schemeresult|six|}
+\consbox\downsolid
+\blankup \blankbox
+\namebox(\scheme|gamma|)
+\renewcommand{\boxtext}{\schemeresult|six|}
+\consbox\rightsolid
+\namebox(\scheme|delta|)
+\renewcommand{\boxtext}{\schemeresult|seventwenty|}
+\consbox\boxnil
+\EndDraw
+\end{picture}
+\end{schemeregion}
+
+\vspace{20pt}
+
+\caption{Fern $\alpha$ immediately after evaluation of cdrs, but before any cars have finished evaluation (a) and after the values, $6$ (b), $120$ (c), and $720$ (d) have been promoted.\label{fig:solid}}
+\end{figure}
+
+\renewcommand\egap{3}
+
+Figure~\ref{fig:solid}d depicts the data structure after
+\mbox{\scheme|(fcaddr alpha)|} is evaluated. Of \scheme|bottom| and
+\mbox{\scheme|(! 6)|}, it comes as no surprise that \mbox{\scheme|(!
+  6)|} is chosen. Since the value of \mbox{\scheme|(! 6)|}, which is
+\schemeresult|720|, is also a possible value for \mbox{\scheme|(fcar
+  delta)|} (and in fact the only one), we update the car of
+\scheme|delta| and the car of the cddr of \mbox{\scheme|alpha|} with
+\schemeresult|720|.  The cdr of \scheme|delta| remains as the empty
+list, and the cdr of the cddr of \mbox{\scheme|alpha|} becomes a new
+frons pair containing \scheme|bottom|. The cdr of the new frons pair
+is the empty list copied from the cdr of \scheme|delta|.  The
+remaining values are obvious given the final state of the data
+structure. No further manipulation of the data structure is necessary
+to evaluate the three remaining calls to \scheme|take-bottom|.
+
+In Figure~\ref{fig:solid}d  each of the ferns
+\scheme|alpha|, \scheme|beta|, \scheme|gamma|, and \scheme|delta|
+contains some permutation of its original possible values, and
+\scheme|bottom| has been pushed to the end of
+\scheme|alpha|. Furthermore, if there are no shared references to
+\scheme|beta|, \scheme|gamma|, and \scheme|delta|, the number of
+accessible pairs is linear in the length of the fern.  If there are
+references to subferns, for a fern of size $n$, the worst case is
+$(n^2+n)/2$.  But, as these shared references vanish, so do the
+additional cons pairs.
+
+If \scheme|list| evaluated from right-to-left instead of evaluating
+from left-to-right, the example expression would return
+\mbox{\scheme|`((720 6 120) (720 6 120) (720 6) (720))|}.  Each list
+would be independent of the others and the last pair of
+\scheme|alpha| would be a frons pair with \scheme|bottom| in the car
+and the empty list in the cdr.  This demonstrates that if there is
+sharing of these lists, the lists contain four pairs, three pairs, two
+pairs, and one pair, respectively.  If the example expression just
+returned \scheme|alpha|, then only four pairs would be accessible.
+
+%\caption{Final state of fern $\alpha$ after promotion of $120$ (top) and $720$ (bottom). \label{fig:p3}}
+
+%\begin{figure}[H]
+%\end{figure}
+
+
+
+
+%\begin{figure}[H]
+%\end{figure}
+%%%%%
+
+%\vspace{10pt}
+
+% In our implementation, it is the requesting of a value from a fern that
+% provokes evaluation of the potential values. Therefore changing the
+% order of requests affects how the data structure is manipulated.
+% Program~\ref{fig:code/sharing-2} is a variation of
+% Program~\ref{fig:code/sharing-1}, with the same initial data structure
+% but with the \scheme|display| lines in reverse order; this code might,
+% on a particular run, print:
+% \begin{schemeresponse}
+% (720)
+% (720 6)
+% (720 6 120)
+% (720 6 120)
+% \end{schemeresponse}
+
+% Figures~\ref{fig:dotted}, \ref{fig:singles} and \ref{fig:bottom}
+% depict some milestones in the evolution of the fern $\alpha$ during
+% the evaluation of Program~\ref{fig:code/sharing-2}.
+% Figure~\ref{fig:dotted} is still applicable because
+% Programs~\ref{fig:code/sharing-1} and \ref{fig:code/sharing-2} differ
+% only in the bodies of their innermost \scheme|let| expressions.
+% The bottom part of Figure~\ref{fig:bottom} shows that if there are references to
+% \scheme|beta|, \scheme|gamma|, and \scheme|delta|, then there are
+% respectively three additional cons pairs if $\beta$ is referenced;
+% two additional cons pairs if $\gamma$ is referenced; and one additional 
+% cons pair if $\delta$ is referenced.  Thus, for a fern
+% of size $n$, the worst case is $(n^2+n)/2$.  But, as these sharings
+% vanish, the number of additional cons pairs approaches zero.
+
+% is not applicable,
+% since Program~\ref{fig:code/sharing-2} evaluates \mbox{\scheme|(fcar
+%   delta)|} first, and the links between previous pairs remain
+% dotted. Figure~\ref{fig:singles} depicts the changes to $\alpha$ as
+% \mbox{\scheme|(take-bottom 1 delta)|}, \mbox{\scheme|(take-bottom 2 gamma)|}, and
+% \mbox{\scheme|(take-bottom 3 beta)|} are evaluated: in each case the first
+% frons pair of the respective subfern contains the only potential
+% value, so that frons pair is simply turned into a cons pair.
+
+% \addtocounter{figure}{-4}
+% \renewcommand{\figurename}{Program}
+
+% \begin{figure}[H]
+% \begin{schemeregion}
+% \schemeinput{fernscode/code/sharing-2}
+% \end{schemeregion}
+% \caption{Variant of Program~\ref{fig:code/sharing-1} with \textit{displays} reversed.\label{fig:code/sharing-2}}
+% \end{figure}
+
+% \renewcommand{\figurename}{Figure}
+% \addtocounter{figure}{3}
+
+% \begin{figure}[H]
+% \begin{schemeregion}
+% \begin{picture}(160,40)(0,-8)
+% \Draw\PenSize(1pt)
+% \namebox(\scheme|alpha|)
+% \renewcommand{\boxtext}{\scheme|bottom|}
+% \fronsbox\rightdotted
+% \namebox(\scheme|beta|)
+% \renewcommand{\boxtext}{\scheme|(!! 5)|}
+% \fronsbox\rightdotted
+% \namebox(\scheme|gamma|)
+% \renewcommand{\boxtext}{\scheme|(!! 3)|}
+% \fronsbox\rightdotted
+% \namebox(\scheme|delta|)
+% \renewcommand{\boxtext}{\schemeresult|720|}
+% \consbox\boxnil
+% \EndDraw
+% \end{picture}
+% \end{schemeregion}
+% \caption{Fern $\alpha$ after promotion of the first value, 720. (See Program~\ref{fig:code/sharing-2}.)\label{fig:singles}}
+% \end{figure}
+
+
+% \begin{schemeregion}
+% \begin{picture}(160,40)(0,-10)
+% \Draw\PenSize(1pt)
+% \namebox(\scheme|alpha|)
+% \renewcommand{\boxtext}{\scheme|bottom|}
+% \fronsbox\rightdotted
+% \namebox(\scheme|beta|)
+% \renewcommand{\boxtext}{\scheme|(!! 5)|}
+% \fronsbox\rightdotted
+% \namebox(\scheme|gamma|)
+% \renewcommand{\boxtext}{\scheme|6|}
+% \consbox\rightsolid
+% \namebox(\scheme|delta|)
+% \renewcommand{\boxtext}{\schemeresult|720|}
+% \consbox\boxnil
+% \EndDraw
+% \end{picture}
+% \end{schemeregion}
+
+% \begin{schemeregion}
+% \begin{picture}(160,40)(0,-10)
+% \Draw\PenSize(1pt)
+% \namebox(\scheme|alpha|)
+% \renewcommand{\boxtext}{\scheme|bottom|}
+% \fronsbox\rightdotted
+% \namebox(\scheme|beta|)
+% \renewcommand{\boxtext}{\scheme|120|}
+% \consbox\rightsolid
+% \namebox(\scheme|gamma|)
+% \renewcommand{\boxtext}{\scheme|6|}
+% \consbox\rightsolid
+% \namebox(\scheme|delta|)
+% \renewcommand{\boxtext}{\schemeresult|720|}
+% \consbox\boxnil
+% \EndDraw
+% \end{picture}
+% \end{schemeregion}
+
+% Figure~\ref{fig:singles} shows that \mbox{\scheme|(take-bottom 1 delta)|},
+% which is the same as \mbox{\scheme|(fcar delta)|}, evaluates only
+% \mbox{\scheme|(! 7)|}, accounting for \scheme|720| in
+% $\delta$. Once we have a cons pair in a fern, its car will generally
+% dominate any frons pairs that refer to it directly or indirectly, so
+% we end up in turn with \mbox{\scheme|(fcar gamma)|},
+% \mbox{\scheme|(fcar beta)|}, and \mbox{\scheme|(fcar alpha)|} also
+% being \scheme|720|.  The values in the other pairs dominate for
+% similar reasons, but then it is for the \scheme|fcadr| and finally for
+% the \scheme|fcaddr|. These lead to the before and after figures
+% for the last promotion that corresponds to taking \mbox{\scheme|(fcaddr alpha)|}
+% as shown in the top diagram of Figure~\ref{fig:bottom}.
+
+ \Define\rightdoubleupsolid {
+   \MarkLoc(p1)
+   \blankbox
+   \MarkLoc(q1)
+   \MarkLoc(q2)
+   \Do(0,\qbxwd){\Move(3,0)}
+   \Move(1,-\qbxwd)
+   \blankup
+   \MarkLoc(p2)
+   \Curve(p1,q1,q2,p2)
+   \tiltedrightuphead
+   \blankleft
+ }
+
+ \Define\righttripleupsolid {
+   \MarkLoc(p1)
+   \blankbox
+   \blankbox
+   \blankup
+   \MarkLoc(q1)
+   \MarkLoc(q2)
+   \Do(0,\qbxwd){\Move(3,0)}
+   \Move(1,-\qbxwd)
+   \blankup
+   \MarkLoc(p2)
+   \Curve(p1,q1,q2,p2)
+   \tiltedrightuphead
+   \blankleft
+   \blankleft
+}
+
+%\begin{figure}[H]
+% \begin{schemeregion}
+% \begin{picture}(160,80)(0,-50)
+% \Draw\PenSize(1pt)
+% \namebox(\scheme|alpha|)
+% \renewcommand{\boxtext}{\schemeresult|120|}
+% \consbox\longdownsolid
+% \renewcommand{\boxtext}{\scheme|bottom|}
+% \fronsbox\rightdoubleupsolid
+% \namebox(\scheme|beta|)
+% \renewcommand{\boxtext}{\scheme|120|}
+% \consbox\rightsolid
+% \namebox(\scheme|gamma|)
+% \renewcommand{\boxtext}{\scheme|6|}
+% \consbox\rightsolid
+% \namebox(\scheme|delta|)
+% \renewcommand{\boxtext}{\schemeresult|720|}
+% \consbox\boxnil
+% \EndDraw
+% \end{picture}
+% \end{schemeregion}
+
+% \begin{schemeregion}
+% \begin{picture}(160,120)(0,-90)
+% \Draw\PenSize(1pt)
+% \namebox(\scheme|alpha|)
+% \renewcommand{\boxtext}{\schemeresult|120|}
+% \consbox\downsolid
+% \renewcommand{\boxtext}{\scheme|6|}
+% \consbox\longdownsolid
+% \renewcommand{\boxtext}{\scheme|bottom|}
+% \fronsbox\righttripleupsolid
+% \namebox(\scheme|beta|)
+% \renewcommand{\boxtext}{\scheme|120|}
+% \consbox\rightsolid
+% \namebox(\scheme|gamma|)
+% \renewcommand{\boxtext}{\scheme|6|}
+% \consbox\rightsolid
+% \namebox(\scheme|delta|)
+% \renewcommand{\boxtext}{\schemeresult|720|}
+% \consbox\boxnil
+% \EndDraw
+% \end{picture}
+% \end{schemeregion}
+
+%%%% penultimate promotion.
+% \begin{figure}[H]
+% \begin{schemeregion}
+% \begin{picture}(160,160)(0,-130)
+% \Draw\PenSize(1pt)
+% \namebox(\scheme|alpha|)
+% \renewcommand{\boxtext}{\schemeresult|720|}
+% \consbox\downsolid
+% \renewcommand{\boxtext}{\scheme|6|}
+% %\consbox\downsolid
+% %\renewcommand{\boxtext}{\schemeresult|120|}
+% \consbox\longdownsolid
+% \renewcommand{\boxtext}{\scheme|bottom|}
+% %\fronsbox\boxnil\blankup\blankup
+% \fronsbox\rightsolid\blankup\blankup
+% %\Move(\hbxwd,-\qbxwd)
+% \Move(3,0)
+% \namebox(\scheme|beta|)
+% \renewcommand{\boxtext}{\scheme|720|}
+% %%%
+% \consbox\downsolid
+% \renewcommand{\boxtext}{\scheme|6|}
+% \consbox\downsolid
+% \renewcommand{\boxtext}{\schemeresult|120|}
+% \consbox\boxnil\blankup\blankup
+% \Move(\hbxwd,-\qbxwd)\Move(3,0)
+% %\consbox\downsolid
+% %%%
+% \namebox(\scheme|gamma|)
+% \renewcommand{\boxtext}{\scheme|720|}
+% \consbox\downsolid
+% \renewcommand{\boxtext}{\scheme|6|}
+% \consbox\boxnil\blankup
+% \Move(\hbxwd,-\qbxwd)\Move(3,0)
+% \namebox(\scheme|delta|)
+% \renewcommand{\boxtext}{\schemeresult|720|}
+% \consbox\boxnil
+% \EndDraw
+% \end{picture}
+% \end{schemeregion}
+
+% \begin{schemeregion}
+% \begin{picture}(160,160)(0,-130)
+% \Draw\PenSize(1pt)
+% \namebox(\scheme|alpha|)
+% \renewcommand{\boxtext}{\schemeresult|720|}
+% \consbox\downsolid
+% \renewcommand{\boxtext}{\scheme|6|}
+% \consbox\downsolid
+% \renewcommand{\boxtext}{\schemeresult|120|}
+% \consbox\longdownsolid
+% \renewcommand{\boxtext}{\scheme|bottom|}
+% \fronsbox\boxnil\blankup\blankup\blankup
+% \Move(\hbxwd,-\qbxwd)\Move(3,0)
+% \namebox(\scheme|beta|)
+% \renewcommand{\boxtext}{\scheme|720|}
+%%%
+% \consbox\downsolid
+% \renewcommand{\boxtext}{\scheme|6|}
+% \consbox\downsolid
+% \renewcommand{\boxtext}{\schemeresult|120|}
+% \consbox\boxnil\blankup\blankup
+% \Move(\hbxwd,-\qbxwd)\Move(3,0)
+% %\consbox\downsolid
+% %%%
+% \namebox(\scheme|gamma|)
+% \renewcommand{\boxtext}{\scheme|720|}
+% \consbox\downsolid
+% \renewcommand{\boxtext}{\scheme|6|}
+% \consbox\boxnil\blankup
+% \Move(\hbxwd,-\qbxwd)\Move(3,0)
+% \namebox(\scheme|delta|)
+% \renewcommand{\boxtext}{\schemeresult|720|}
+% \consbox\boxnil
+% \EndDraw
+% \end{picture}
+% \end{schemeregion}
+% \caption{Final promotion within fern $\alpha$ from Program~\ref{fig:code/sharing-2}.\label{fig:bottom}}
+% \end{figure}
+
+The example presented in this section provides a direct view of
+promotion. When a fern is accessed by multiple computations, the
+promotion algorithm must be able to handle various issues such as
+multiple values becoming available for promotion at once. The code
+presented in Chapter~\ref{fernsimpl} handles these details.
+
+We are now ready to consider a ferns-based implementation of
+miniKanren.
+
+\section{Ferns-based miniKanren}\label{lp-system}
+
+In this section we describe a simple bottom-avoiding logic programming
+language, which corresponds to core miniKanren with non-interleaving
+search.
+% In this section, we use the task of logic programming as an extended
+% example of the use of ferns in avoiding bottom while maintaining a
+% natural recursive style. 
+%We compare two sets of goal constructors, one
+%using streams and the other using ferns.  
+We begin by describing and
+implementing operators \scheme|mplus-bottom| and \scheme|bind-bottom| over ferns,
+and go on to implement goal constructors in terms of these
+operators.  The fern-based goal constructors are shown to be more
+general than the standard stream-based ones presented in Chapter~\ref{mkimplchapter}\footnote{See~\citet{Wand04relatingmodels} for a historical account of logic combinators.}.
+
+\subsection{\protect\scheme|mplus-bottom| and \protect\scheme|bind-bottom|}\label{mplus-bottom-and-bind-bottom}
+
+Since we are developing goal constructors in Scheme, a call-by-value language,
+we make \scheme|mplus-bottom| itself lazy to avoid diverging when one or
+more of its arguments diverge. This is accomplished by defining \scheme|mplus-bottom| as a
+macro that wraps its two arguments in \scheme|fern| before passing
+them to \scheme|mplus-fn-bottom|. In addition, \scheme|mplus-bottom| must interleave
+elements from both of its arguments so that a fern of unbounded length
+in the first argument will not cause the second argument to be
+ignored.
+
+%% TODO: bind should be lazy!
+%% Bind should not need to be lazy, since its arguments are streams
+%% and functions and we know all the places it is called.
+
+%% TODO: examples of why we need frons?
+
+% The \scheme|mplus-func-bottom| procedure does exactly that, returning a fern
+% that is guaranteed to contain all the convergent elements of both
+% \scheme|s1| and \scheme|s2|, even if both contain divergent elements
+% or are infinite in length.
+
+% \noindent Because \scheme|mplus-func-bottom| immediately returns a fern,
+% \mbox{\scheme|(mplus-func-bottom s1 s2) converges|} for all ferns \scheme|s1| and
+% \scheme|s2|. In addition, since the results are interleaved, divergent
+% values are pushed to the end of the resulting fern. Thus,
+
+% \belowcodeskip 0pt
+% \schemeinput{fernscode/code/mplus-example-1}\schemeresult|=> `(5 6)|
+% \belowcodeskip \medskipamount
+
+% \medskip
+
+% \noindent \scheme|mplus-func-bottom| even works on infinite ferns, interleaving
+% them:
+
+% \belowcodeskip 0pt
+% \schemeinput{fernscode/code/mplus-example-2}\schemeresult|=> `(1 200 201 2)|
+% \belowcodeskip \medskipamount
+
+% \medskip
+
+% Unfortunately, this definition of \scheme|mplus-func-bottom| can handle only one
+% type of divergence: while \mbox{\scheme|(mplus-func-bottom s1 s2) converges|} when
+% \mbox{\scheme|s1| \scheme|converges|} and \mbox{\scheme|s2| \scheme|converges|}, 
+% \mbox{\scheme|(mplus-func-bottom s1 bottom) => bottom|}. 
+% Since \scheme|s1| may have non-\scheme|bottom|
+% values, we would prefer that \scheme|mplus-func-bottom| avoid this type of
+% divergence by waiting to evaluate its arguments until necessary. We can
+% accomplish this by writing \scheme|mplus-func-bottom| as a macro that creates a
+% two-value fern of its arguments before passing that fern to the
+% \scheme|mplus-fn-bottom| procedure.  $
+
+\schemedisplayspace
+\schemeinput{fernscode/mplus-fn}
+
+\schemeinput{fernscode/bind}
+
+% We use a fern constructor to make \scheme|mplus-bottom| lazy: if one of the ferns in the 
+% argument to \scheme|mplus-fn-bottom| is divergent, it can select the other
+% one. For example, consider \mbox{\scheme|(fcar (mplus-bottom bottom (fern 5)))|},
+% which evaluates to \schemeresult|5|. 
+\noindent
+\scheme|bind-bottom| avoids the same types of
+divergence as \scheme|map-bottom| described in Section~\ref{fernsRecursiveExamples} but
+uses \scheme|mplus-bottom| to merge the results of the calls to \scheme|f|.
+Thus, \mbox{\scheme|(bind-bottom (ints-bottom 0) ints-bottom)|} is an unbounded fern of
+integers; for every (nonnegative) integer $n$, it contains the
+integers starting from $n$ and therefore every nonnegative integer $n$
+is contained $n+1$ times.  The interleaving leads to
+duplicates in the following example:
+
+\wspace
+\noindent\scheme|(take-bottom 13 (bind-bottom (ints-bottom 0) ints-bottom))| \schemeresult|~> `(0 1 2 1 3 4 5 6 7 8 9 2 10)|.
+\wspace
+
+\noindent
+The addition of \scheme|unit-bottom| and \scheme|mzero-bottom| rounds out the set of
+operators we need to implement a minimal miniKanren-like language.
+
+\schemedisplayspace
+\schemeinput{fernscode/mzerounit}
+
+\noindent Using these definitions, we can run programs that require
+multiple unbounded ferns, such as this program inspired by Seres and
+Spivey~\cite{CombinatorsforLP} that searches for a pair $a$ and $b$ of
+divisors of $9$ by enumerating the integers from $2$ in a fern of
+possible values for $a$ and similarly for $b$:
+
+\schemedisplayspace
+\belowcodeskip 0pt
+\schemeinput{fernscode/spivey}\schemeresult|=> `(3 3)|.
+\belowcodeskip \medskipamount
+\medskip
+
+\noindent Using streams instead of ferns in this example, which would be
+like nesting ``for'' loops, would result in divergence since $2$ does
+not evenly divide $9$.
+
+\subsection{Goal Constructors}
+
+%\enlargethispage{30pt}
+We are now ready to define three goal constructors:
+\scheme|==-bottom|, which unifies terms; \scheme|disj-bottom|, which
+performs disjunction over goals; and \scheme|conj-bottom|, which
+performs conjunction over goals\footnote{\scheme|disj-bottom| is just a simplified version of \scheme|conde|, while \scheme|conj-bottom| is just a simplified version of \scheme|exist|.}. These goal constructors are required
+to terminate, and they always return a goal.  A \emph{goal} is a
+procedure that takes a substitution and returns a fern of
+substitutions (rather than a stream of substitutions, as in
+Chapter~\ref{mkimplchapter}).
+
+\schemedisplayspace
+\schemeinput{fernscode/mk-without-run}
+
+A logic program evaluates to a goal; to obtain answers, this goal is
+applied to the empty substitution. The result is a fern of
+substitutions representing answers.  We define \scheme|run-bottom| in terms
+of \scheme|take-bottom|, described in Section \ref{fernsRecursiveExamples}, to
+obtain a list of answers from the fern of substitutions
+
+\schemedisplayspace
+\schemeinput{fernscode/mk-run}
+\noindent where \scheme|n| is a non-negative integer (or \scheme|#f|) and 
+\scheme|g| is a goal.  
+% (See Section~\ref{lp-helpers} for the rest of the definitions used in this section.)
+
+Given two logic variables \scheme|x| and \scheme|y|, here are
+some simple logic programs that produce the same answers using both
+fern-based and stream-based goal constructors.
+
+\medskip
+
+\indent \scheme|(run-bottom #f (==-bottom 1 x))| \schemeresult|=> `($\{x/1\}$)| \\
+\indent \scheme|(run-bottom 1 (conj-bottom (==-bottom y 3) (==-bottom x y)))| %$
+\schemeresult|=> `($\{x/3, y/3\}$)| \\
+\indent \scheme|(run-bottom 1 (disj-bottom (==-bottom x y) (==-bottom y 3)))| %$
+\schemeresult|=> `($\{x/y\}$)| \\
+ \indent \scheme|(run-bottom 5 (disj-bottom (==-bottom x y) (==-bottom y 3)))| %$
+\schemeresult|=> `($\{x/y\}$ $\{y/3\}$)| \\
+ \indent \scheme|(run-bottom 1 (conj-bottom (==-bottom x 5) (conj-bottom (==-bottom x y) (==-bottom y 4))))|
+\schemeresult|=> `()| \\
+\indent \scheme|(run-bottom #f (conj-bottom (==-bottom x 5) (disj-bottom (==-bottom x 5) (==-bottom x 6))))|
+\schemeresult|=> `($\{x/5\}$)|
+
+\medskip
+
+\noindent It is not difficult, however, to find examples of logic
+programs that diverge when using stream-based goal constructors but
+converge using fern-based constructors:
+
+\medskip
+
+\scheme|(run-bottom 1 (disj-bottom bottom (==-bottom x 3)))| \schemeresult|=> `($\{x/3\}$)| \\
+\indent \scheme|(run-bottom 1 (disj-bottom (==-bottom bottom x) (==-bottom x 5)))| \schemeresult|=> `($\{x/5\}$)|
+
+\medskip
+
+\noindent and given idempotent substitutions \cite{lloyd:lp}, the
+fern-based operators can even avoid some circularity-based divergence
+without the occurs-check, while stream-based operators cannot:
+
+\wspace
+
+\scheme|(run-bottom 1 (disj-bottom (==-bottom (list x) x) (==-bottom x 6)))| \schemeresult|=> `($\{x/6\}$)|
+
+\wspace
+
+There are functions that represent relations. The relation
+\scheme|always-five-bottom| associates 5 with its argument an unbounded number of times:
+
+\schemedisplayspace
+\schemeinput{fernscode/always-five}
+
+\noindent Because both stream and fern constructors
+do not evaluate their arguments,
+we may safely evaluate the goal \mbox{\scheme|(always-five-bottom x)|}, %$
+obtaining an unbounded collection of answers.  Using
+\scheme|run-bottom|, we can ask for a finite number of these answers. Because
+the ordering of streams is determined at construction time, however, the
+stream-based operators cannot even determine the first answer in that
+collection. This is because the definition of \scheme|always-five-bottom| is left recursive.  The fern-based operators, however, compute as many answers 
+as desired:
+
+\medskip
+
+\mbox{\scheme|(run-bottom 4 (always-five-bottom x))| \schemeresult|=> `($\{x/5\}$ $\{x/5\}$ $\{x/5\}$ $\{x/5\}$)|}.
+
+\medskip
+
+
+% \scheme|(take-bottom #f ((==-bottom 1 x) empty-s)) =>| \schemeresult|`($\{x/1\}$)|
+
+% \scheme|(take-bottom #f ((conj-bottom (==-bottom 1 x) (==-bottom 2 x)) empty-s) =>|
+% \schemeresult|`()|
+
+% \scheme|(take-bottom #f ((disj-bottom (==-bottom 2 x) (==-bottom 3 x)) empty-s)) =>| \schemeresult|`($\{x/2\}$ $\{x/3\}$)|
+
+% \noindent With \scheme|cons| instead of \scheme|frons|, the following examples diverge:
+
+% \scheme|(take-bottom 1 ((disj-bottom bottom (==-bottom 4 x)) empty-s)) =>| \schemeresult|`($\{x/4\}$)|
+
+% \scheme|(take-bottom 1 ((disj-bottom (==-bottom bottom x) (==-bottom 5 x)) empty-s)) =>| \schemeresult|`($\{x/5\}$)|
+
+% \noindent Without the occurs check, the following example also diverges
+% with \scheme|cons| instead of \scheme|frons|:
+
+% \scheme|(take-bottom 1 ((disj-bottom (==-bottom `(,x) x) (==-bottom x 6)) empty-s)) =>|
+% \schemeresult|`($\{x/6\}$)|
+
+% \section{Helper Functions}\label{lp-helpers}
+
+% To complete the implementation of the bottom-avoiding logic
+% programming operators presented in Section~\ref{lp-system}, we provide
+% a logic variable constructor \scheme|make-var|, a unification
+% algorithm \scheme|unify|, and substitution helpers \scheme|empty-s|,
+% \scheme|ext-s|, and \scheme|walk|. We represent logic variables by
+% R$^6$RS~\cite{r6rs} records (syntactic layer); defining the record
+% type \scheme|var| creates the constructor \scheme|make-var|
+% automatically. We represent substitutions as association lists, and
+% use the triangular substitution model~\cite{FBaade01}.
+
+% \schemedisplayspace
+% \schemeinput{fernscode/subst}

@@ -1,0 +1,517 @@
+\chapter{Related Work}\label{relatedworkchapter}
+
+This chapter describes some of the work by other researchers that is
+related to the research presented in this dissertation.  
+
+% Logic programming is a huge field that has existed for almost forty
+% years; it would be impossible to describe all of the relevant related
+% work.
+
+\citeauthor{lloyd:lp} \citeyearpar{lloyd:lp} is the standard work on
+the theoretical foundations of logic programming; \citeauthor{doets}
+\citeyearpar{doets} has written a more recent introduction to the
+theory of logic programming.
+
+The most popular logic programming language is Prolog
+\cite{ISO:1995:IIIe,ISO:2000:IIIf}.  \citeauthor{ClocksinMellish}
+\citeyearpar{ClocksinMellish} have written one of the most popular
+introductions to the language.  Prolog was designed by Colmerauer
+\cite{prologtenfigs,prologthree}; \citeauthor{birthofprolog}
+\citeyearpar{birthofprolog} describe the early history of Prolog.
+
+Most modern implementations of Prolog are based on the Warren Abstract
+Machine (WAM) \cite{AICPub641:1983}; \citeauthor{wamtutorial}
+\citeyearpar{wamtutorial} presents a tutorial reconstruction of the
+WAM.  \citeauthor{DBLP:journals/jlp/Roy94}
+\citeyearpar{DBLP:journals/jlp/Roy94} describes in detail the first
+decade of sequential Prolog implementation techniques after the
+invention of the WAM.
+
+\citeauthor{declproginprolog} has advocated using Prolog for
+declarative programming \citeyearpar{declproginprolog}; unfortunately,
+Prolog's design and implementation encourages the use of cut and other
+non-logical features.  For example, \citeauthor{Naish:1995pr}
+\citeyearpar{Naish:1995pr} argues that Prolog programming without cut
+is impractical.
+
+% Horn logic
+
+%\section{Combining Functional and Logic Programming}\label{functionalrelated}
+
+
+There is a long tradition of embedding logic programming operators in
+Scheme
+\cite{logscheme,schelog,translitprolog,
+% nondetinlogscheme, % interpreter, not an embedding
+% SriOxlSri85, % not sure if this is an embedding
+sicp,metacircularlogicalscheme,logiccontinuationsjlp}.
+Most of this work was done during the mid-1980's to early-1990's, and
+most of these embeddings can be seen as attempts to combine
+Prolog's unification and backtracking search with Scheme's lexical
+scope and first-class functions.  Similarly, there have been attempts to
+embed logic programming in other functional languages, such as Lisp
+\cite{LogLisp,commonlispextendedprolog,ConcurrentLogLISP,qlog,DBLP:books/eh/campbell84/KahnC84} and
+Haskell
+\cite{embeddingprologinhaskell,Seres:jucsfunctionalreadingoflogic,CombinatorsforLP,kc+pl:haskell00-typedlp,continuationshaskelllp}.
+However, the extent to which these languages truly integrate
+functional programming and logic programming is debatable; as with
+miniKanren, these embeddings are not functional logic programming
+languages in the modern sense; they do not provide higher-order
+unification or higher-order pattern matching, as in
+\lambdaprolog~\cite{nadathur88,lambdaprologdescr}, nor do they use
+narrowing or residuation.
+
+Two modern languages that combine logic programming with functional
+programming are Mercury \cite{Somogyi95mercury} and Curry
+\cite{Hanus95curry:a}. The syntax and type systems of both languages
+are inspired by Haskell.
+
+The Mercury compiler uses programmer-supplied type, mode, and
+determinism annotations to compile each goal into multiple functions.
+this results in very efficient code, which is essential to the Mercury
+team's objective of facilitating declarative programming
+``in-the-large''.  Unfortunately, this emphasis on the efficiency
+comes at the expense of relational programming---forcing, or even
+permitting, a programmer to explicitly specify an argument's mode as
+``input'' or ``output'' is the antithesis of relational programming.
+
+The Curry language takes a different approach, integrating functional
+and logic programming through the single implementation strategy of
+narrowing \cite{AntoyHanusMasseySteiner01PPDP}; that is, lazy term
+rewriting, with the ability to instantiate logic variables.  Curry
+also supports residuation, which allows a goal to suspend if its
+arguments are not sufficiently instantiated. For example, a goal that
+performs addition might suspend if its first two arguments are not
+ground. While residuation is a useful language feature, it inhibits
+relational programming since the program will diverge if the arguments
+never become instantiated.
+
+miniKanren is the descendant of Kanren \cite{kanrensite}, another
+embedding of logic programming in Scheme.  Kanren is closer in spirit
+to Prolog than is miniKanren.  Philosophically, Kanren was designed
+for efficiency rather than for relational programming. Kanren 
+supports neither nominal logic, disequality constraints, nor tabling. Kanren
+allows programmers to easily extend existing relations\footnote{This
+  can be done in miniKanren as well, through the technique of function
+  extension. However, Kanren provides an explicit form for extending a
+  relation.}.
+
+Sokuza Kanren is a minimal embedding of logic programming in Scheme;
+it is essentially a stripped down version of the core miniKanren
+implementation from Chapter~\ref{mkimplchapter}\footnote{For example,
+  Sokuza Kanren does not include a reifier.}.
+
+
+
+
+
+
+% Maybe in history of miniKanren:
+% Daniel P. Friedman and Oleg Kiselyov. ``A Logic System with First-Class
+% Relations''. May 2004. Available online: ps pdf.
+
+% Maybe in history of miniKanren:
+% R. Kent Dybvig, Daniel P. Friedman, and Michael
+% Y. Levin. ``Implementation strategies for Scheme-based Prolog
+% systems''. 1998. Available online: ps pdf.
+
+% Mitchell Wand. ``A Semantic Algebra for Logic Programming''. Indiana
+% University. TR-148. August 1983.
+
+% Michael C. Rubenstein and Richard M. Salter. ``Computationally Extended
+% Logic Programming''. Journal of Computer
+% Languages. Vol. 12. Num. 1. 1987.
+% \cite{compextendedlp}
+
+% J. Michael Ashley and Richard M. Salter. "A Revised State Space Model
+% for a Logic Programming Embedding in Scheme". BIGRE Bulletin. 65. July
+% 1989.
+
+
+
+%(perhaps footnote on Planner)
+
+
+%Silvija Seres, Michael J. Spivey, C.A.R. Hoare. Algebra of Logic Programming. ICLP'99. November 1999.
+%\cite{algebraoflogicprogramming}
+
+
+% Implementing functional logic languages using multiple threads and stores
+% Tolmach, Andrew and Antoy, Sergio and Nita, Marius
+% \cite{multiplethreadsstores}
+
+% Deriving backtracking monad transformers
+% Ralf Hinze
+% \cite{hinze2000}
+% Abstract: In a paper about pretty printing J. Hughes introduced two fundamental techniques for deriving programs from their specification, where a specification consists of a signature and properties that the operations of the signature are required to satisfy. Briefly, the first technique, the term implementation, represents the operations by terms and works by defining a mapping from operations to observations --- this mapping can be seen as defining a simple interpreter. The second, the context-passing implementation, represents operations as functions from their calling context to observations. We apply both techniques to derive a backtracking monad transformer that adds backtracking to an arbitrary monad. In addition to the usual backtracking operations --- failure and nondeterministic choice --- the prolog cut and an operation for delimiting the effect of a cut are supported.
+
+
+%\section{Core miniKanren}\label{coremkrelated}
+
+% Reification--Prolog operator
+
+% unification  Kevin Knight
+% \cite{knightunifsurvey}
+
+% M and M algorithm
+% \cite{MartelliMontanari}
+
+% linear time unification
+
+%idempotent vs. triangular substitutions
+
+%disunification: a survey
+%\cite{Comon91disunification:a}
+
+%ommiting occurs check (Apt)
+%\cite{occurcheck}
+
+%CPS
+%\cite{genericaccountcps}
+%A-Normal Form, for unnesting
+%\cite{essencecompiling}
+
+%BinProlog (for unnesting/CPS-style intermediate language)
+%\cite{binprolog}
+
+
+% Backtracking, interleaving, and terminating monad transformers
+% Amr, Dan, Ken, and Oleg
+% \cite{backtracking}
+
+% Streams (see references from TRS:  pages 132, 145, 148, 159)
+% Philip L. Wadler
+% How to replace failure by a list of successes: a method for exception handling, backtracking, and pattern matching in lazy functional languages.
+% \cite{failurelistsuccesses}
+
+% Wand and Val
+% \cite{Wand04relatingmodels}
+
+\section{Purely Relational Arithmetic}\label{arithrelated}
+
+Chapter~\ref{arithchapter} presents a purely relational binary
+arithmetic system.
+
+We first presented arithmetic predicates over binary natural numbers
+(including division and logarithm) in a book \cite{trs}.  That
+presentation had no detailed explanations, proofs, or formal analysis;
+this was the focus of a later paper \cite{conf/flops/KiselyovBFS08}
+that presented the arithmetic relations in Prolog rather than
+miniKanren.  A lengthier, unpublished version of this
+paper\footnote{\url{http://okmij.org/ftp/Prolog/Arithm/arithm.pdf}}
+includes appendices containing additional proofs.
+
+Bra{\ss}el, Fischer, and Huch's paper \citeyearpar{numbers-Curry}
+appears to be the only previous description of declarative arithmetic.
+It is a practical paper, based on the functional logic language Curry.
+It argues for declaring numbers and their operations in the language
+itself, rather than using external numeric data types and operations.
+It also uses a little-endian binary encoding of positive integers
+(later extended to signed integers).
+
+Whereas our implementation of arithmetic uses a pure
+logic programming language, Bra{\ss}el, Fischer, and Huch
+use a non-strict functional-logic programming language.  Therefore,
+our implementations use wildly different strategies and
+are not directly comparable.  Also, we implement the logarithm relation.
+
+Bra{\ss}el, Fischer, and Huch leave it to future work to prove
+termination of their predicates.  In contrast, we have formulated and
+proved decidability of our predicates under interleaving search (as
+used in miniKanren) and depth-first search (used in Prolog).
+
+Our approach is minimalist and pure; therefore, its methodology can be
+used in other logic systems---specifically, Haskell's type classes.
+% The logic programming of Haskell typeclasses is
+% assuredly pure, with no cut, |var/1|, or negation.
+Hallgren \citeyearpar{hallgren01fun} first implemented (unary)
+arithmetic in such a system, but with restricted modes. Kiselyov
+\citeyearpar[\S6]{npt} treats decimal addition more relationally.
+Kiselyov and Shan \citeyearpar{lightweight-resources} first
+demonstrated all-mode arithmetic relations for arbitrary binary
+numerals, to represent numerical equality and inequality constraints
+in the type system.  Their type-level declarative arithmetic library
+enables resource-aware programming in Haskell with expressive static
+guarantees.
+
+\section{\alphakanren}\label{alphakanrenrelated}
+
+\alphakanren, presented in Chapters~\ref{akchapter} and
+\ref{akimplchapter}, is a nominal logic programming language; it was
+based on both miniKanren and
+\alphaprolog~\cite{CheneyThesis,CheneyU04}.
+
+Early versions of \alphaprologsp implemented equivariant
+unification~\cite{DBLP:conf/rta/Cheney05}, which allows the
+permutations associated with suspensions to contain logic variables.
+The expense of equivariant unification~\cite{DBLP:conf/icalp/Cheney04}
+led \citeauthor{DBLP:conf/tlca/UrbanC05} to replace full equivariant
+unification with nominal unification \cite{DBLP:conf/tlca/UrbanC05}.
+\citeauthor{CheneyThesis}'s dissertation presents numerous examples of
+nominal logic programming in \alphaprologsp \cite{CheneyThesis}.
+% Unfortunately, it appears that \alphaprologsp is no longer under development.
+
+MLSOS \cite{lakin2007} is another nominal logic language, designed for
+easily expressing the rules and side-conditions of Structured
+Operational Semantics \cite{Plotkin:2004:SAO}.  MLSOS uses nominal
+unification, and introduces \emph{name constraints}, which are
+essentially disequality constraints restricted to noms (or to
+suspensions that will become noms).
+
+Nominal logic was introduced by \citeauthor{Pitts03}
+\citeyearpar{Pitts03}.  Nominal functional languages include FreshML
+\cite{ShinwellPG03}, Fresh O'Caml \cite{journals/entcs/Shinwell06},
+and C$\alpha$ml \cite{pottier06}.
+
+The first nominal unification algorithm was presented and proved
+correct by \citeauthor{Urban-Pitts-Gabbay/04}
+\citeyearpar{Urban-Pitts-Gabbay/04}; the algorithm was described using
+idempotent substitutions.  
+
+A naive implementation of the \citeauthor{Urban-Pitts-Gabbay/04}
+algorithm has exponential time complexity; however, by representing
+nominal terms as graphs, and by lazily pushing in swaps, it is
+possible to implement a polynomial-time version of nominal unification
+\cite{DBLP:journals/tcs/CalvesF08,implnomunif}.
+
+More recently, \citet{DowekEtAl} presented a variant
+of nominal unification using ``permissive'' nominal terms, which do
+not require explicit freshness constraints.  To our knowledge, there
+are no programming languages that currently support permissive nominal
+terms.
+
+\section{\alphatap}\label{alphataprelated}
+
+The \alphatapsp relational theorem prover presented in
+Chapter~\ref{alphatapchapter} is based on \leantap, a lean
+tableau-based prover for first-order logic due
+to~\citet{beckert95leantap}.
+
+Through his integration of \leantapsp with the Isabelle theorem
+prover, \citet{paulson99generic} shows that it is possible to
+modify \leantapsp to produce a list of Isabelle tactics representing a
+proof.  This approach could be reversed to produce a proof translator
+from Isabelle proofs to \alphatapsp proofs, allowing \alphatapsp to
+become interactive as discussed in section~\ref{backwards}.
+
+The \leantapsp Frequently Asked Questions
+\cite{beckert-leantsupsuppfaq} states that \leantapsp might be made
+declarative through the elimination of Prolog's cuts but does not
+address the problem of \mbox{\texttt{copy\_term/2}} or specify how the cuts
+might be eliminated.  Other provers written in Prolog include those of
+\citet{manthey1988stp} and \citet{stickel1988ptt}, but each uses some
+impure feature and is thus not declarative.
+
+\citet{christiansen1998arc} uses constraint logic programming and
+metavariables (similar to nominal logic's names) to build a
+declarative interpreter based on Kowalski's non-declarative
+\texttt{demonstrate} predicate~\cite{kowalski79}.  This approach is
+similar to ours, but the Prolog-like language is not complicated by
+the presence of binders.
+
+Higher-order abstract syntax (HOAS), presented in
+\citet{pfenning1988hoa}, can be used instead of nominal logic to
+perform substitution on quantified formulas. \citet{felty1988stp} were
+among the first to develop a theorem prover using HOAS to represent
+formulas; \citet{pfenning1999sdt} also use a HOAS encoding for
+formulas.
+
+Kiselyov uses a HOAS encoding for universally quantified formulas in
+his original translation of \leantapsp into
+miniKanren~\cite{kanrensite}. Since miniKanren does not implement
+higher-order unification, the prover cannot generate theorems.
+
+\citeauthor{lisitsalambdald}'s $\lambda$\leantapsp
+\citeyearpar{lisitsalambdald} is a prover written in \lambdaprologsp
+that addresses the problem of \mbox{\texttt{copy\_term/2}} using HOAS, and is
+perhaps closest to our own work.  Like \alphatap, $\lambda$\leantapsp
+replaces universally quantified variables with logic variables using
+substitution. However, $\lambda$\leantapsp is not declarative, since
+it contains cuts.  Even if we use our techniques to remove the cuts
+from $\lambda$\leantap, the prover does not generate theorems, since
+\lambdaprologsp uses a depth-first search strategy.  Generating
+theorems requires the addition of a tagging scheme and iterative
+deepening on \emph{every clause} of the program.  Even with these
+additions, however, $\lambda$\leantapsp often generates theorems that
+do not have the proper HOAS encoding, since that encoding is not
+specified in the prover.
+
+% \section{Type Inferencer}\label{inferencerrelated}
+
+% simply-typed lambda calculus
+% \cite{lamcalcwithtypes}
+
+% Hindley-Milner
+
+% A Theory of Type Polymorphism in Programming
+% Robin Milner
+% \cite{Milner78}
+
+
+% Algorithm W
+
+% Principal type-schemes for functional programs
+% Damas, Luis and Milner, Robin
+% \cite{hindleymilner}
+
+
+% Pierce
+% \cite{tapl}
+
+% intuitionistic logic
+
+
+
+% Curry-Howard Isomorphism
+% \cite{Howard80}
+
+% A formulae-as-type notion of control
+% Griffin, Timothy G.
+% \cite{Griffin90}
+
+% Oleg's type inhabitation tool (Haskell and Scheme)
+
+% Djinn (other, competing type inhabitation tool)
+
+% Formula Tree Lab (type inhabitation)
+
+% Coq
+
+% Twelf
+
+% type inhabitation,
+% type habitation,
+% term reconstruction
+
+
+
+% \section{Term Reducer}\label{reducerrelated}
+
+% The relational term reducer in Chapter~\ref{reducerchapter} was
+% inspired by PLT Redex, a domain-specific language for specifying
+% operational semantics \cite{DBLP:conf/rta/MatthewsFFF04}.  Like
+% \alphakanren, PLT Redex is embedded in Scheme.  PLT Redex is more
+% sophisticated than the reducer of Chapter~\ref{reducerchapter}; given
+% a grammar and a set of rewrite rules, PLT Redex will automatically
+% generate a stepper.  However, PLT Redex cannot ``run backwards'', and
+% does not support nominal terms.
+
+% Two other popular term rewriting systems are Maude \cite{Maude2:03}
+% and Stratego \cite{stratego}. \citeauthor{termrewritingandallthat}
+% have written an excellent introduction to term rewriting
+% \cite{termrewritingandallthat}.  How to best combine term rewriting
+% with nominal logic is an active area of research
+% \cite{nominalrewriting,nomrewritingsystems,nomrewritingwithnamegen,hierarchicalnomterms}.
+
+\section{Tabling}\label{tablingrelated}
+
+Tabling is essentially an efficient way to find fixed points.  Tabling
+can be used to implement model checkers, abstract interpreters,
+deductive databases, and other useful programs that must calculate
+fixed points~\cite{dra09,memoingforlp}.
+
+Many Prolog implementations support some form of tabling.  XSB
+Prolog~\cite{xsb}, which uses SLG Resolution~\cite{SLGresolution} and
+the SLG-WAM abstract machine~\cite{SLGwam}, remains the standard
+testbed for advanced tabling implementation.  Our implementation was
+originally inspired by the Dynamic Reordering of Alternatives (DRA)
+approach to
+tabling~\cite{dra09,simpleimplementingtabling}.
+
+
+% OLD resolution with tabulation (OLDT)~\cite{oldt}, SLG
+% Resolution~\cite{SLGresolution}, the SLG-WAM abstract
+% machine~\cite{SLGwam}.  
+
+% CAT: The Copying Approach to Tabling
+% Demoen, Bart and Sagonas, Konstantinos F.
+% \cite{meow}
+
+% CHAT: the copy-hybrid approach to tabling
+% Demoen, Bart and Sagonas, Konstantinos
+% \cite{chat}
+
+% adding closures to the WAM
+
+% streams-based and continuations-based tabling
+
+
+\section{Ferns}\label{fernsrelated}
+
+Chapter~\ref{fernschapter} describes ferns, a shareable,
+bottom-avoiding data structure invented by \citet{ferns81}.
+Chapter~\ref{fernsimpl} presents our shallow embedding of ferns in
+Scheme.
+
+Previous implementations of ferns have been for a call-by-need
+language.  The work of \citet{Friedman79b,DFried80,ferns81} presumes a
+deep embedding whereas our approach is a shallow embedding.  The
+function \scheme|coax| is taken from their conceptualization~\cite{Friedman79b}:
+
+\begin{quote}
+  {COAX is a function which takes a suspension as an argument and
+    returns a field as a value; that field may have its \emph{exists}
+    bit \emph{true} and its pointer referring to its \emph{exist}ent
+    value, or it may have its \emph{exists} bit false and its pointer
+    referring to another suspension.}
+\end{quote}
+
+\noindent
+Thus, engines are a user-level, first-class manifestation of
+suspensions where \emph{true} above corresponds to the unused ticks.  
+\citeauthor{Johnson-77}'s master's thesis \citeyearpar{Johnson-77} 
+under Friedman's direction presents
+a deep embedding in Pascal for a lazy ferns language.  Subsequently,
+Johnson and his doctoral student Jeschke implemented a series of
+native C symbolic multiprocessing systems based on the Friedman and
+Wise model.  This series culminated with the parallel implementation
+Jeschke describes in his dissertation \cite{Jeschke-PHD-95}.  In their
+\emph{Daisy} language, ferns are the means of expressing explicit
+concurrency \cite{Johnson-83}.
+
+
+
+% [TODO Integrate the related work sections of the various papers.
+% Also, the footnotes throughout the dissertation describe related
+% work.]
+
+% \noindent [look at related work sections of each paper and of TRS]
+
+% \noindent [One of Siskind's PhD students said that there is a researcher working
+% on making functions ``run backwards''.  Dan thinks his name is
+% C. Hennie.  Dan doesn't think his work is directly relevant, but I
+% need to check anyway.  Maybe he has some useful techniques.]
+
+% \noindent [Apt's papers: 'Declarative Programming in Prolog' and 'Declarative
+% Interpretation Reconsidered']
+
+% %%%\noindent [Work on design patterns for logic programs.]
+
+% \noindent [Mercury, Curry]
+
+% \noindent [Dan thinks I need to discuss modes, perhaps in the context of
+% Mercury]
+
+% \noindent [Disjkstra guard for non-overlapping property]
+
+% \noindent [CPS, and esp. A-Normal Form, for unnesting]
+
+% \noindent [BinProlog (for unnesting/CPS-style intermediate language)]
+
+% \noindent [Combinators for Logic Programming.  Work of Hanus.]
+
+% \noindent [Schelog/Prolog on a Page.  Other implementations of logic languages
+% in Scheme or functional languages]
+
+% \noindent [Kanren/Sokouza Kanren]
+
+% \noindent [alphaProlog, MLSOS, CaML, nominal logic/unification/Urban, Pitts and
+% Gabbay]
+
+% \noindent [Competing relational arithmetic system from German researchers]
+
+% \noindent [ICFP paper by Amr, Dan, Ken, and Oleg on backtracking monads]
+
+% \noindent [HOAS as an alternative to nominal logic]
+
+% \noindent [CLP]

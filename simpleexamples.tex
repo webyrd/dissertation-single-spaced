@@ -1,0 +1,106 @@
+\chapter{Simple Examples}\label{simpleexampleschapter}
+
+\subsection{Peano Arithmetic}\label{peanosection}
+
+This section introduces \emph{Peano representation} of numbers (technically, \emph{Peano numerals}).  The advantage of this representation is that we can use \scheme|==| both to construct and to match against numbers.
+
+The Peano representation of zero is \scheme|`z|, while the immediate successor to a Peano number \mbox{\scheme|n|} is represented as \mbox{\scheme|`(s ,n)|}.  For example, one is the immediate successor of zero---the Peano representation of one is therefore \mbox{\scheme|`(s z)|}.  Two is the immediate successor of one, so the Peano representation of two is \mbox{\scheme|`(s (s z))|}.
+
+Typographically, we indicate a Peano number using corner brackets---for example, \mbox{\scheme|(peano 3)|} for \mbox{\scheme|`(s (s (s z)))|}. We represent \mbox{\scheme|`(s ,x)|} as \mbox{\scheme|(peano+ x 1)|}, \mbox{\scheme|`(s (s ,x))|} as \mbox{\scheme|(peano+ x 2)|}, and so forth, where \scheme|x| is a variable or a reified variable (that is, a symbol).  
+
+
+Here is \scheme|pluso|, which adds two Peano numbers.
+
+\begin{schemedisplay}
+(define pluso
+  (lambda (n m sum)
+    (conde
+      ((== (peano 0) n) (== m sum))
+      ((exist (x y)
+         (== (peano+ x 1) n)
+         (== (peano+ y 1) sum)
+         (pluso x m y))))))
+\end{schemedisplay}
+
+\newpage
+\noindent \scheme|pluso| allows us to find all pairs of numbers that sum to six.
+
+\begin{schemedisplay}
+(run* (q)
+  (exist (n m)
+    (pluso n m (peano 6))
+    (== `(,n ,m) q))) $\Rightarrow$
+\end{schemedisplay}
+\nspace
+\begin{schemeresponse}
+((,(peano 0) ,(peano 6))
+ (,(peano 1) ,(peano 5))
+ (,(peano 2) ,(peano 4))
+ (,(peano 3) ,(peano 3))
+ (,(peano 4) ,(peano 2))
+ (,(peano 5) ,(peano 1))
+ (,(peano 6) ,(peano 0)))
+\end{schemeresponse}
+
+Let us define \scheme|minuso| using \scheme|pluso|, and use it to find ten pairs of numbers whose difference is six.
+
+\begin{schemedisplay}
+(define minuso
+  (lambda (n m k)
+    (pluso m k n)))
+
+(run10 (q)
+  (exist (n m)
+    (minuso n m (peano 6))
+    (== `(,n ,m) q))) $\Rightarrow$
+\end{schemedisplay}
+\nspace
+\begin{schemeresponse}
+((,(peano 6) ,(peano 0))
+ (,(peano 7) ,(peano 1))
+ (,(peano 8) ,(peano 2))
+ (,(peano 9) ,(peano 3))
+ (,(peano 10) ,(peano 4))
+ (,(peano 11) ,(peano 5))
+ (,(peano 12) ,(peano 6))
+ (,(peano 13) ,(peano 7))
+ (,(peano 14) ,(peano 8))
+ (,(peano 15) ,(peano 9)))
+\end{schemeresponse}
+
+We have chosen to have subtraction of a larger number from a smaller number
+fail, rather than be zero.
+
+\begin{schemedisplay}
+(run* (q) (minuso (peano 5) (peano 6) q)) $\Rightarrow$ `()
+\end{schemedisplay}
+
+We will also need \scheme|eveno| and \scheme|positiveo| in several examples below. 
+
+\begin{schemedisplay}
+(define eveno
+  (lambda (n)
+    (conde
+      ((== (peano 0) n))
+      ((exist (m)
+         (== (peano+ m 2) n)
+         (eveno m))))))
+
+(define positiveo
+  (lambda (n)
+    (exist (m)
+      (== (peano+ m 1) n))))
+\end{schemedisplay}
+
+\scheme|eveno| and \scheme|positiveo| ensure that their
+arguments represent even and positive Peano numbers, respectively.
+
+\begin{schemedisplay}
+(run4 (q) (eveno q)) $\Rightarrow$ `(,(peano 0) ,(peano 2) ,(peano 4) ,(peano 6))
+
+(run* (q) (positiveo q)) $\Rightarrow$ `(,(peano+ '_.0 1))
+\end{schemedisplay}
+
+\noindent The value \begin{schemebox}(peano+ '_.0 1)\end{schemebox} shows that
+$n + 1$ is positive for every number $n$.
+

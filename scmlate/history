@@ -1,0 +1,587 @@
+Last change: 2012-04-21
+
+Apr 21, 2012
+
+Chicken seems to have stopped using getenv since after about v.
+4.6.0.  Use get-environment-variable instead, which should work
+for older versions too.  Rpt by Timothy Beyer.
+
+Apr 11, 2009
+
+Updated for Chicken Scheme 4.0.0.
+
+Apr 10, 2009
+
+Some support for Armed Bear Common Lisp.  However: It abbreviates long
+sexprs with "...", which is no use at all.
+
+Updated for Gambit 4.4.2.
+
+datum->syntax-object and syntax-object->datum now are named
+datum->syntax and syntax->datum.
+
+Apr 2, 2009
+
+Scheme quotient == CL floor.
+
+Mar 31, 2009
+
+Less verbose translation of cond with =>; and let*.
+
+Mar 19, 2009
+
+Some support for Clozure CL.
+
+Jun 13, 2006
+
+In previous change, => should have been <=
+(greater-than-or-equals).  This was causing => in cond to
+translate badly.
+
+May 21, 2006
+
+clnames.cl: *scm2cl-fns-named-same* should include < = > <= =>
+
+clmacros.lsp: scheme-make-vector typo (should use make-array instead of
+make-string).  Correction from Jacques Mequin, j-mequin at ti dot com.
+
+Apr 15, 2005
+
+getenv => posix-getenv for SBCL
+
+Apr 12, 2005
+
+scm2cl changes:
+
+- Translate cond into cascaded-if only if it contains =>.  Otherwise
+  preserve the cond for readability. 
+
+- Allow eval to take a second argument, which CL will ignore.
+
+- Recognize + - * / when they appear in non-function-call position.  (These
+  have repl-related values in CL, so caused quite weird bugs, without #' in
+  front of them!)
+
+- scm2cl: Catch more instances of automatic funcall insertion.
+
+Mar 15, 2005
+
+sample.configure added.  Put this file in a scmxlate-configured package and
+name it 'configure'
+
+Allow ((...) ...) in subsexps of if, unless and when.  (I.e., funcalls will
+be automatically inserted.)
+
+Sept 8, 2004
+
+If $COMSPEC is set (i.e., it's a Windows box), and $TERM is cygwin, then
+consider OS to be unix.
+
+July 15, 2003
+
+CL xln of call-with-output-string bugfixed.
+
+May 30, 2003
+
+Allow compile option for Chicken.
+
+Use date of release instead of (cooked up) version numbers.
+
+v 1a10a
+
+May 29, 2003
+
+Remove predefn of eof for Gauche, as it is 
+written out as unreadable object.  Remove
+use of file-mtime as it depends on (use file.util).
+
+v 1a10
+
+May 27, 2003
+
+Alex Shinn supplied configuration for Gauche.
+
+v 1a9
+
+Mar 25, 2003
+
+Translate define-macro into define-syntax for
+MzScheme version 200+. 
+
+v 1a8
+
+Mar 9, 2003
+
+s/scmxlate-ignore/scmxlate-ignore-define/ 
+
+v 1a7
+
+Feb 9, 2003
+
+Use pretty-print for Guile.
+
+resolve-aliases shouldn't if *reading-source-file?*
+
+Feb 8, 2003
+
+scm2cl: Recognize struct-accessors as global functions.
+
+Use pp (pretty-printer) for MIT Scheme.
+
+Translate inexact->exact as identity.
+
+Insert funcalls for top-level expr inside lambda-body
+if it begins with two left parens.
+
+Jan 18, 2003
+
+with-input-from-port, with-output-to-port
+
+v 1a6
+
+Jan 11, 2003
+
+Allow self-recursions of the sort
+
+(define fname 
+  (lambda (...)
+    (... fname (as value) ...)))
+
+v 1a5
+
+Dec 15, 2002
+
+resolve-aliases s/be called only when reading
+source file.
+
+Dec 13, 2002
+
+current-seconds.  
+
+Remove Scheme file-or-directory-modify-seconds ==
+CL file-write-date because they have a 70-year
+age difference.
+
+Dec 11, 2002
+
+Scsh 0.6.2: close-input-port of input string port
+says Error: returning zero values when one is expected
+(values).  Removing it for now.
+
+Scheme48 won't tolerate \n in strings, even if
+it's deadcode!  So I can't use \n for newline
+in display's argument string. :-(
+
+v 1a4
+
+Dec 10, 2002
+
+STKlos 0.53.
+
+For CLISP (only), set *print-pretty* to t so calls to
+princ inside scmxlate-insert work like Scheme
+display with no gratuitous newlines.  (info from Sam
+Steingold.)
+
+v 1a3
+
+Dec 7, 2002
+
+CL banner uses lisp-implementation-{type,version}
+
+SBCL
+
+v 1a2
+
+Dec 3, 2002
+
+Support for Chicken added.
+
+Nov 29, 2002
+
+Guile 1.6.0's eval can't be called with just one
+argument. 
+
+Nov 27, 2002
+
+MIT Scheme seems to now use syntactic closure macros
+rather than syntax-table-define.  Accommodate.
+
+Nov 24, 2002
+
+Reject compile request for Chez/Petite if
+it's really Petite.  Use (eqv? (current-eval)
+compile) trick suggested by Gustavo Gomez.
+
+v 1a1
+
+Nov 24, 2002
+
+Add code in scm2cl.cl so, when called by itself,
+it displays the same version number as scmxlate.
+
+Nov 23, 2002
+
+Fix scmxlate's response to a user request for compile.
+Shell-magic lines are preserved.  CL's compile-file
+(or maybe just CLISP's) doesn't seem to allow an
+extensionless source filename -- add workaround.
+
+v 1a
+
+Nov 23, 2002
+
+Replace scmxlate-disable-main with
+the more general scmxlate-uncall.
+
+Documentation now covers all relevant 
+aspects!  Version finally jumps to 1!
+
+Nov 22, 2002
+
+Replace scmxlate-when with the more versatile
+scmxlate-cond.  Added scmxlate-eval, so 
+scmxlate-cond and scmxlate-insert have something
+substantial to munch on.
+
+Nov 21, 2002
+
+Reduce the number of config files needed in dialects/
+subdiry to one per source file.  To this end, add
+the following commands:
+  scmxlate-insert
+  scmxlate-postamble
+  scmxlate-postprocess
+
+v 0o
+
+Nov 20, 2002
+
+Added documentation about writing an scmxlate
+configuration.  (Lots TBD.)
+
+Shorten some filenames. 
+s/scm2cl-names/clnames
+s/scm2cl-macros/clmacros
+s/scheme-procs/clprocs
+
+Treat #' of local procedure names introduced by
+labels (from non-TR named-let) correctly.
+
+Can't believe scm2cl didn't tackle letrec till
+now!  I guess I tend to use named-let instead. 
+
+Use scm2cl to translate parts of scmxlate.scm for
+scmxlate.cl, so I can concentrate effort on
+scmxlate.scm and not worry that scmxlate.cl won't
+be up-to-date. 
+
+Nov 19, 2002
+
+Added scmxlate-when.
+
+Nov 17, 2002
+
+Added makefile for my own use.
+
+v 0n
+
+Nov 10, 2002
+
+CL: Translate set! of global vars that were previously
+defuns into setf's of symbol-functions.  So
+(define foo <proc>) followed by (set! foo <proc>) 
+allows foo to continue to be treated as 
+a global function albeit with a new value.
+Of course, we have to ensure the new value
+is also a procedure, but that's probably an ok
+restriction.
+
+Nov 4, 2002
+
+Check for MzScheme version (< or >= 200) made more
+robust.  Input from Paul Steckler.
+
+Nov 1, 2002
+
+Translate define-syntax into define-macro for PLT
+versions before 200.
+
+v 0m
+
+15 Sep 2002
+
+CL: If first line of file-to-be-ported starts with #,
+ignore it.  
+
+CL: Heads of case clause should be pruned of 
+#'.
+
+26 Mar 2002
+
+scmxlate-rename just renames a symbol in the source.
+scmxlate-rename-define furthermore eliminates its
+definition in the source. 
+
+25 Mar 2002
+
+add *predefined-aliases* that is dialect-dependent
+
+v 0L1
+
+24 Mar 2002
+
+scmxlate.cl now uses cl pathnames instead of
+os-dependent stringy pathnames.  (Uses :relative which
+isn't in CLtL1 -- I hope this doesn't break on
+older CLs)
+
+scmxlate-disable-main
+
+23 Mar 2002
+
+scmxlate calls translates the cl version of
+each sexp rather than scm2cl'ing the entire file
+and then translating that result.  This allows
+scmxlate config for cl (which is written in cl)
+to be more natural, ie, it doesn't have to know
+what the intermediate cl-translation looks like
+
+Allow defstructs to be overridden
+
+Added scmxlate-prefix, scmxlate-include, and allow
+scmxlate[-dialect[-os]]-start-<file> in dialects/
+
+When renaming x to y, we can also ignore any 
+definition for x.
+
+22 Mar 2002
+
+Added scmxlate-compile?
+as option specifiable in user-override file
+
+21 Mar 2002
+
+Use distinct names: scmxlate-ignore,
+scmxlate-rename
+
+Allow user overrides in file
+scmxlate-<file-to-be-ported>
+
+Added scmxlate-target-file, which allows user to set
+*target-file*, which can be fruitfully used by
+package-writer-supplied configuration code in
+dialects/ to make ready-to-run scripts
+
+v 0L
+
+19 Mar 2002
+
+Included the Scheme-to-Scheme porting mechanism from
+tex2page (also schelog) into this (formerly scm2cl)
+distribution, and rename latter to scmxlate.  It still
+contains scm2cl as an independently usable
+submodule.  scmxlate is thus a general
+configuration tool that translates a Scheme package to
+a variety of Scheme dialects and Common Lisp.
+
+--- I include here some history of the porting mechanism
+from tex2page.
+
+--- 16 Mar 2002
+
+tex2page's to-Common-Lisp porting method made general
+(ie, not specific to tex2page), just like the
+Scheme-to-Scheme method.
+
+changes to porting mechanism to help make
+it more easily customizable in the 
+"dialects" directory -- defignore,
+defalias.  don't wait for user input
+if singleton files dialects-supported.scm
+and operating-systems-supported.scm found
+in dialects/
+
+--- 31 Jan 2002
+
+Scheme 48
+
+-- 16 Dec 2001
+
+Low-level define-syntax as implemented in MzScheme.
+Convert this to defmacro for dialects that need it.
+Thing to note: Petite and SXM's low-level define-syntax is
+almost like MzScheme's but with a slightly less
+convenient semantics for the procedure datum->syntax-object.
+
+--- 18 Jan 2001
+
+SXM,  Pocket Scheme
+
+--- 16 Jan 2001
+
+Scsh
+
+--- 13 Dec 2000
+
+Move porting-related clutter into subdirectory "dialects".
+
+--- 4 April 1999
+
+Petite Chez Scheme
+
+--- 16 April 1998
+
+MIT Scheme
+
+--- 14 April 1998
+
+Guile
+
+--- 24 April 1997
+
+Extensible mechanism added for porting to various Scheme dialects
+(MzScheme, Gambit).
+
+--- end of sxmlate pre-history from tex2page
+
+16 Mar 2002
+
+Allow correct lexical shadowing of global
+procedure names, where the new value can also be a
+procedure.  These inner procs will acquire a funcall
+since they are not global.
+
+v 0k3
+
+20 Mar 2001
+
+define translates to defparameter (not defvar)
+so a later define overwrites an earlier define
+of the same identifier 
+
+v 0k2
+
+6 Jan 2001
+
+(MzScheme) flush-output = (CL) force-output 
+
+Dec 19, 2000
+
+getenv = system:getenv, for ACL and CLISP
+
+v 0k1
+
+Dec 17, 2000
+
+string->symbol is more Scheme-y.
+Leading-colon strings are cvted to keywords.
+All-lowercase strings are cvted to all-uppercase
+symbols, so symbols can remain unescaped in both
+Scheme and CL.  In general, a lowercase char
+in the string becomes an uppercase char in the
+symbol and an uppercase char becomes a lowercase.
+  ":keyword" -> :keyword
+  "symbol"   -> symbol
+  "SYMBOL"   -> |symbol|
+  "SyMbOL"   -> |sYmBoL|
+
+v 0k
+
+Dec 16, 2000
+
+Allow dotted data in source.
+
+string->number should work on "" too
+(it's defined using read-from-string, which
+should return nil on eof instead of erroring)
+
+struct-setter-p (scm2cl-macros.cl) shouldn't
+error on nonsymbols
+
+v 0j1
+
+Nov 28, 2000
+
+labels (xln of named-let) correction.  The 
+args of the procs it introduces shd be 
+allowed to be procs themselves.
+
+v 0j
+
+Nov 23, 2000
+
+with-input-from-file, with-output-to-file
+load-relative
+
+v 0i
+
+Nov 2, 2000
+
+Change CL defmacro's rest arg from just
+__syntax-rules-arg__ to 
+(&rest __syntax-rules-arg__) because CL spec seems (?)
+to disallow former.  Sugg by Rainer Joswig
+(joswig@corporate-world.lisp.de)
+
+v. 0h
+
+Apr 2, 2000
+
+(define x (let ((y ...)) (lambda ...))) converted to
+(let ((y ...)) (defun x ...)) 
+
+v. 0g
+
+Oct 9, 1999
+
+Procs introduces by an earlier entry in a let* should be
+usable in subsequent entries.
+
+Treat cond-clause that has only one element (which is
+both test and then-expression).
+
+v. 0f
+
+Oct 3, 1999
+
+Give uppercase char to set-dispatch-macro-character.
+Shouldn't matter ideally, but a version of CLISP choked.
+
+v. 0e
+
+Feb 14, 1999
+
+current-input-port, current-output-port
+
+v. 0d
+
+Feb 11, 1999
+
+A Scheme version of defstruct supported.
+
+April 27, 1998
+
+v. 0c
+
+scheme-procs.cl not included automatically in
+translation (it is hardly ever needed).
+
+Only those named lets whose names begin (rather than
+contain) the substring "loop" are converted into CL
+loops
+
+April 18, 1998
+
+v. 0b
+
+let-syntax and letrec-syntax treated.
+
+Made funcall-insertion better by keeping track of
+bound variables.
+
+=> in cond recognized.
+
+April 27, 1997
+
+v. 0a

@@ -1,0 +1,19 @@
+echo '
+(load "./slatex/slatex.scm")
+;check pathname above is correct for you
+(slatex::process-main-tex-file "'$1'")' | petite
+
+./runquasi.pl
+
+if test -f pltexchk.jnk
+then xetex $1; rm pltexchk.jnk
+else xelatex $1
+fi
+#if test -f pltexchk.jnk
+#then pdftex $1; rm pltexchk.jnk
+#else pdflatex $1
+#fi
+#if test -f pltexchk.jnk
+#then tex $1; rm pltexchk.jnk
+#else latex $1
+#fi

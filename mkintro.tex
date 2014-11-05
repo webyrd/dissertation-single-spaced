@@ -1,0 +1,674 @@
+\chapter{Introduction to Core miniKanren}\label{mkintrochapter}
+
+This chapter introduces the core miniKanren language, provides several
+short example programs, and shows how to translate a simple Scheme
+function into a miniKanren relation.
+
+This chapter is organized as follows.  Section~\ref{coremksection}
+introduces the core miniKanren language.  In
+section~\ref{transappendosection} we show how to translate the
+standard Scheme \scheme|append| function into a miniKanren relation.
+Section~\ref{impureoperatorssection} describes several ``impure''
+operators that, while not part of the pure miniKanren core language,
+are useful when trying to model Prolog programs.
+
+\section{Core miniKanren}\label{coremksection}
+
+miniKanren extends Scheme with three operators: \scheme|==|,
+\scheme|conde|, and \scheme|exist|. There is also \scheme|run|, which
+serves as an interface between Scheme and miniKanren, and whose value
+is a list.
+
+\scheme|exist|, which syntactically looks like \scheme|lambda|,
+introduces new variables into its scope; \scheme|==| unifies two
+values.  Thus
+
+\wspace
+
+\noindent\scheme|(exist (x y z) (== x z) (== 3 y))|
+
+\wspace
+
+\noindent would associate \scheme|x| with \scheme|z| and \scheme|y|
+with \scheme|3|.  This, however, is not a legal miniKanren
+program---we must wrap a \scheme|run| around the entire expression.
+
+\wspace
+
+\noindent\scheme|(run1 (q) (exist (x y z) (== x z) (== 3 y)))| $\Rightarrow$ \begin{schemeresponsebox}(_.0)\end{schemeresponsebox}
+
+\wspace
+
+\noindent The value returned is a list containing the single value \schemeresult|_.0|;
+we say that \schemeresult|_.0| is the \emph{reified value} of the fresh variable \scheme|q|.  \scheme|q| also remains fresh in
+
+\wspace
+
+\noindent\scheme|(run1 (q) (exist (x y) (== x q) (== 3 y)))| $\Rightarrow$ \begin{schemeresponsebox}(_.0)\end{schemeresponsebox}
+
+\wspace
+
+We can get back other values, of course.
+
+\wspace
+
+\begin{schemebox}
+(run1 (y)
+  (exist (x z) 
+    (== x z)
+    (== 3 y)))
+$\ $
+\end{schemebox}
+\begin{schemebox}
+(run1 (q)
+  (exist (x z)
+    (== x z)
+    (== 3 z)
+    (== q x)))
+\end{schemebox}
+\begin{schemebox}
+(run1 (y)
+  (exist (x y)
+    (== 4 x)
+    (== x y))
+  (== 3 y))
+\end{schemebox}
+
+\wspace
+
+\noindent Each of these examples returns \scheme|`(3)|; in the rightmost example, the \scheme|y| introduced by \scheme|exist| is different from the \scheme|y| introduced by \scheme|run| because the variables are lexically scoped.  \scheme|run| can also return the empty list, indicating that there are no values.
+
+\wspace
+
+\noindent\scheme|(run1 (x) (== 4 3))| $\Rightarrow$ \schemeresult|`()|
+
+\wspace
+
+We use \scheme|conde| to get several values---syntactically,
+\scheme|conde| looks like \scheme|cond| but without \scheme|=>|
+or \scheme|else|.  For example,
+
+\schemedisplayspace
+\begin{schemedisplay}
+(run2 (q)
+  (exist (x y z)
+    (conde
+      ((== `(,x ,y ,z ,x) q))
+      ((== `(,z ,y ,x ,z) q))))) $\Rightarrow$ 
+\end{schemedisplay}
+\nspace
+\begin{schemeresponse}
+((_.0 _.1 _.2 _.0) (_.0 _.1 _.2 _.0))
+\end{schemeresponse}
+
+\noindent Although the two \scheme|conde|-clauses are different, the
+values returned are identical.  This is because distinct reified fresh
+variables are assigned distinct numbers, increasing from left to
+right---the numbering starts over again from zero within each value,
+which is why the reified value of \scheme|x|
+is \schemeresult|_.0| in the first
+value but \schemeresult|_.2| in the
+second value.
+
+Here is a simpler example using \scheme|conde|.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(run5 (q)
+  (exist (x y z)
+    (conde
+      ((== 'a x) (== 1 y) (== 'd z))
+      ((== 2 y) (== 'b x) (== 'e z))
+      ((== 'f z) (== 'c x) (== 3 y)))
+    (== `(,x ,y ,z) q))) $\Rightarrow$
+\end{schemedisplay}
+\nspace
+\begin{schemeresponse}
+((a 1 d) (b 2 e) (c 3 f))
+\end{schemeresponse}
+
+\noindent The superscript \scheme|5| denotes the maximum length of the resultant
+list.  If the superscript \scheme|*| is used, then there is no maximum
+imposed.  This can easily lead to infinite loops:
+
+\schemedisplayspace
+\begin{schemedisplay}
+(run* (q)
+  (let loop ()
+    (conde
+      ((== #f q))
+      ((== #t q))
+      ((loop)))))
+\end{schemedisplay}
+
+\noindent Had the \scheme|*| been replaced by a non-negative integer \scheme|n|, then
+a list of \scheme|n| alternating \scheme|#f|'s and \scheme|#t|'s would be returned.  
+The \scheme|conde| succeeds while associating \scheme|q| with \scheme|#f|, which 
+accounts for the first value.  When getting the second value, 
+the second \scheme|conde|-clause is tried, and the association made between \scheme|q| and \scheme|#f| is forgotten---we
+say that \scheme|q| has been \emph{refreshed}.  In the third 
+\scheme|conde|-clause, 
+\scheme|q| is refreshed once again.
+
+We now look at several interesting examples that rely on \scheme|anyo|.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define anyo 
+  (lambda (g)
+    (conde
+      (g)
+      ((anyo g)))))
+\end{schemedisplay}
+
+\noindent \scheme|anyo| tries \scheme|g| an unbounded number of times.
+Here is our first example using \scheme|anyo|.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(run* (q)
+  (conde
+    ((anyo (== #f q)))
+    ((== #t q))))
+\end{schemedisplay}
+
+\noindent This example does not terminate, because the call to
+\scheme|anyo| succeeds an unbounded number of times.
+If \scheme|*| is replaced by \scheme|5|, then instead we get
+ \mbox{\schemeresult|`(#t #f #f #f #f)|}.
+(The user should not be concerned with the order in which values are returned.)
+
+Now consider
+
+\schemedisplayspace
+\begin{schemedisplay}
+(run10 (q)
+  (anyo 
+    (conde
+      ((== 1 q))
+      ((== 2 q))
+      ((== 3 q))))) $\Rightarrow$
+\end{schemedisplay}
+\nspace
+\begin{schemeresponse}
+(1 2 3 1 2 3 1 2 3 1)
+\end{schemeresponse}
+
+
+\noindent Here the values \scheme|1|, \scheme|2|, and \scheme|3| are interleaved;
+our use of \scheme|anyo| ensures that this sequence will be repeated indefinitely.
+
+Here is \scheme|alwayso|,
+
+\wspace
+
+\noindent\mbox{\scheme|(define alwayso (anyo (== #f #f)))|}
+
+\wspace
+
+\noindent along with two \scheme|run| expressions that use it.
+
+\schemedisplayspace
+\begin{schemebox}
+(run1 (x)
+  (== #t x)
+  alwayso
+  (== #f x))
+$\ $
+$\ $
+\end{schemebox}
+\hspace{2cm}
+\begin{schemebox}
+(run5 (x)
+  (conde
+    ((== #t x))
+    ((== #f x)))
+  alwayso
+  (== #f x))
+\end{schemebox}
+
+\wspace
+
+\noindent The left-hand expression diverges---this is because 
+\scheme|alwayso| succeeds an unbounded number of times, 
+and because \mbox{\scheme|(== #f x)|} fails each of those times.
+
+The right-hand expression returns a list of five \scheme|#f|'s.  This
+is because both \scheme|conde|-clauses are tried, and both succeed.
+However, only the second \scheme|conde|-clause contributes to the
+values returned. Nothing changes if we swap the two
+\scheme|conde|-clauses.  If we change the last expression to
+\mbox{\scheme|(== #t x)|}, we instead get a list of five
+\scheme|#t|'s.
+
+Even if some \scheme|conde|-clauses loop indefinitely, other
+\scheme|conde|-clauses can contribute to the values returned by a
+\scheme|run| expression.
+% (We are not concerned with
+% Scheme expressions looping indefinitely, however.)  
+For example,
+
+\schemedisplayspace
+\begin{schemedisplay}
+(run3 (q)
+  (let ((nevero (anyo (== #f #t))))
+    (conde
+      ((== 1 q))
+      (nevero)
+      ((conde
+         ((== 2 q))
+         (nevero)
+         ((== 3 q)))))))
+\end{schemedisplay}
+
+\noindent returns \schemeresult|`(1 2 3)|; replacing \scheme|run3|
+with \scheme|run4| causes divergence, however, since there are only
+three values, and since \scheme|nevero| loops indefinitely.
+
+\section{Translating Scheme Code to miniKanren}\label{transappendosection}
+
+In this section we translate the standard Scheme function
+\scheme|append| to the equivalent miniKanren relation,
+\scheme|appendo|.  \scheme|append| takes two lists as arguments, and
+returns the appended list.
+
+\wspace
+
+\noindent\mbox{\scheme|(append '(a b c) '(d e)) => |}\mbox{\schemeresult|`(a b c d e)|}
+
+\wspace
+
+Here is the definition of \mbox{\scheme|append|}.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define append
+  (lambda (l s)
+    (cond
+      ((null? l) s)
+      (else (cons (car l) (append (cdr l) s))))))
+\end{schemedisplay}
+
+Rather than translate the Scheme definition directly to miniKanren, we
+will massage the Scheme code to make it closer in spirit to a
+miniKanren relation. Only after we have performed several
+Scheme-to-Scheme transformations will we translate to
+miniKanren\footnote{This approach differs from that of~\cite{trs},
+  which translates Scheme functions directly to miniKanren.}.
+
+First we replace the always-true \scheme|else| test with an explicit
+\scheme|pair?| test, making the \scheme|cond| clauses
+\emph{non-overlapping}\footnote{The concept of non-overlapping clauses
+  is revisited in section~\ref{reconsiderrember}.}.
+
+\newpage
+
+%\schemedisplayspace
+\begin{schemedisplay}
+(define append
+  (lambda (l s)
+    (cond
+      ((null? l) s)
+      ((pair? l) (cons (car l) (append (cdr l) s))))))
+\end{schemedisplay}
+
+Next we replace \scheme|cond| with the \scheme|pmatch|
+pattern-matching macro from Appendix~\ref{pmatch}.  The use of pattern
+matching is close in spirit to unification, and lets us easily
+translate the code to use \scheme|matche| or \scheme|lambdae| from
+Appendix~\ref{matche}.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define append
+  (lambda (l s)
+    (pmatch `(,l ,s)
+      (`(() ,s) s)
+      (`((,a . ,d) ,s)
+       (cons a (append d s))))))
+\end{schemedisplay}
+
+We then perform an \emph{unnesting} step reminiscent of the
+Continuation-Passing Style (CPS) transformation\footnote{More correctly, the unnested program is
+  similar to one in A-Normal Form (ANF)~\cite{essencecompiling}.}
+ (see, for example, \citet{eopl3}): we unnest
+any nested calls, introducing \scheme|let|-bound variables
+where necessary\footnote{Unlike in the CPS transformation we must
+  unnest \emph{every} call, even those guaranteed to terminate.
+  For example, unnesting \mbox{\scheme|(cons (cons 1 2) 3)|} results
+  in \mbox{\scheme|(let ((tmp (cons 1 2))) (cons tmp 3))|}.}.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define append
+  (lambda (l s)
+    (pmatch `(,l ,s)
+      (`(() ,s) s)
+      (`((,a . ,d) ,s)
+       (let ((res (append d s)))
+         (cons a res))))))
+\end{schemedisplay}
+
+After unnesting, we are ready to translate the Scheme function into a
+miniKanren relation.  We add a superscript $o$ to the name, to
+indicate the new function is a relation.  We add an ``output''
+argument\footnote{When translating a Scheme predicate to a miniKanren
+  relation we do not add an ``output'' argument. This is because success
+  or failure of a call to the relation is equivalent to the Scheme
+  predicate returning \scheme|#t| or \scheme|#f|, respectively.} and
+change \scheme|pmatch| to \scheme|matche|.  We add the output argument
+to the list of values being matched against by \scheme|matche|, and the
+individual patterns.  Any value that would have previously been returned
+must now be unified with the \scheme|out| argument, either explicitly
+using \scheme|==| or implicitly using pattern matching.  We also
+change the \scheme|let| to \scheme|exist| introducing a ``temporary''
+logic variable.
+
+\newpage
+
+%\schemedisplayspace
+\begin{schemedisplay}
+(define appendo
+  (lambda (l s out)
+    (match-e `(,l ,s ,out)
+      (`(() ,s ,s))
+      (`((,a . ,d) ,s ,out)
+       (exist (res)
+         (appendo d s res)
+         (== (cons a res) out))))))
+\end{schemedisplay}
+
+Since we are matching against all the arguments of \scheme|appendo|,
+we can use \scheme|lambdae| rather than \scheme|matche|.
+Also, we may wish to replace \mbox{\scheme|(cons a res)|} with
+\mbox{\scheme|`(,a . ,res)|} to reflect our use of unification as
+pattern matching.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define appendo
+  (lambda-e (l s out)
+    (`(() ,s ,s))
+    (`((,a . ,d) ,s ,out)
+     (exist (res)
+       (appendo d s res)
+       (== `(,a . ,res) out)))))
+\end{schemedisplay}
+
+If we do not wish to use the \scheme|matche| or \scheme|lambdae|
+pattern matching macros, we can rewrite \scheme|appendo| in core
+miniKanren.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define appendo
+  (lambda (l s out)
+    (conde
+      ((== '() l) (== s out))
+      ((exist (a d)
+         (== `(,a . ,d) l)
+         (exist (res)
+           (appendo d s res)
+           (== `(,a . ,res) out)))))))
+\end{schemedisplay}
+
+Of course we can use the \scheme|appendo| relation to append two
+lists.
+
+\noindent\mbox{\scheme|(run* (q) (appendo '(a b c) '(d e) q)) => |}\mbox{\schemeresult|`((a b c d e))|}
+
+\noindent But we can also find all pairs of lists that, when
+appended, produce \mbox{\scheme|'(a b c d e)|}.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(run6 (q)
+  (exist (l s)
+    (appendo l s '(a b c d e))
+    (== `(,l ,s) q))) $\Rightarrow$ 
+\end{schemedisplay}
+\nspace
+\begin{schemeresponse}
+((() (a b c d e))
+ ((a) (b c d e))
+ ((a b) (c d e))
+ ((a b c) (d e))
+ ((a b c d) (e))
+ ((a b c d e) ()))
+\end{schemeresponse}
+
+\noindent Unfortunately, replacing \scheme|run6| with \scheme|run7|
+results in divergence, for reasons explained in
+Chapter~\ref{divergencechapter}.  We can avoid this problem if we swap
+the last two lines of \scheme|appendo|.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define appendo
+  (lambda (l s out)
+    (conde
+      ((== '() l) (== s out))
+      ((exist (a d)
+         (== `(,a . ,d) l)
+         (exist (res)
+           (== `(,a . ,res) out)
+           (appendo d s res)))))))
+\end{schemedisplay}
+
+\noindent This final version of \scheme|appendo| illustrates an
+important principle: unifications should always come before recursive
+calls, or calls to other ``serious'' relations.
+
+%%% From diseq chapter
+
+% Here is \mbox{\scheme|rember|}
+
+% \schemedisplayspace
+% \begin{schemedisplay}
+% (define rember
+%   (lambda (x ls)
+%     (cond
+%       ((null? ls) '())
+%       ((eq? (car ls) x) (cdr ls))
+%       (else (cons (car ls) (rember x (cdr ls)))))))
+% \end{schemedisplay}
+
+% To translate \mbox{\scheme|rember|} into the miniKanren relation
+% \mbox{\scheme|rembero|} we add a third argument \mbox{\scheme|out|},
+% change \mbox{\scheme|cond|} to \mbox{\scheme|conde|}, and replace uses
+% of \mbox{\scheme|null?|}, \mbox{\scheme|eq?|}, \mbox{\scheme|cons|},
+% \mbox{\scheme|car|}, and \mbox{\scheme|cdr|} with calls to
+% \mbox{\scheme|==|}.  We also unnest the recursive call, using a
+% temporary variable \mbox{\scheme|res|} to hold the ``output'' value of
+% the recursive call.
+% \newpage
+% \schemedisplayspace
+% \begin{schemedisplay}
+% (define rembero
+%   (lambda (x ls out)
+%     (conde
+%       ((== '() ls) (== '() out))
+%       ((exist (a d)
+%          (== `(,a . ,d) ls)
+%          (== a x)
+%          (== d out)))
+%       ((exist (a d res)
+%          (== `(,a . ,d) ls)
+%          (== `(,a . ,res) out)
+%          (rembero x d res))))))
+% \end{schemedisplay}
+
+
+
+\section{Impure Operators}\label{impureoperatorssection}
+
+In this section we include several \emph{impure} operators that appear
+in earlier work on miniKanren, notably~\citet{trs} and
+\citet{DBLP:conf/iclp/NearBF08}: \scheme|project|, \scheme|conda|,
+\scheme|condu|, \scheme|onceo|, and \scheme|copy-termo|.  These
+operators are not considered part of core miniKanren, and are
+inherently non-relational since they may not work correctly for every
+goal ordering of a program; also, it is not legal to pass only fresh
+variables to some of these operators, namely \scheme|onceo| and
+\scheme|copy-termo|.  As a result we only use these operators to
+demonstrate impure Prolog-like features, for example in
+Chapter~\ref{alphatapchapter} during translation of the \leantapsp
+theorem prover from Prolog to miniKanren.  Importantly, the final
+version of the translated prover does not use any impure operators.
+
+\scheme|project| can be used to access the values associated with
+logic variables.  For example, the expression
+
+\schemedisplayspace
+\begin{schemedisplay}
+(run* (q)
+  (exist (x)
+    (== 5 x)
+    (== (* x x) q)))
+\end{schemedisplay}
+
+\noindent has no value, since Scheme's multiplication function
+operates only on numbers, not logic variables associated with numbers.
+We can solve this problem by projecting \scheme|x|: within the body of
+the \scheme|project| form, \scheme|x| is a lexical variable bound to
+5.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(run* (q)
+  (exist (x)
+    (== 5 x)
+    (project (x)
+      (== (* x x) q)))) $\Rightarrow$ 
+\end{schemedisplay}
+\nspace
+\begin{schemeresponse}
+(25)
+\end{schemeresponse}
+
+\noindent Unfortunately, the expression
+
+\schemedisplayspace
+\begin{schemedisplay}
+(run* (q)
+  (exist (x)
+    (project (x)
+      (== (* x x) q))
+    (== 5 x)))
+\end{schemedisplay}
+
+\noindent has no value, since \scheme|x| is unassociated when
+\mbox{\scheme|(* x x)|} is evaluated.  This example demonstrates that
+\scheme|project| is not a relational operator\footnote{We explore a
+  relational approach to arithmetic in Chapter~\ref{arithchapter}.}.
+
+\scheme|conda| and \scheme|condu| are used to prune a program's search
+tree, and can be used in place of Prolog's \emph{cut} ({\tt !})\footnote{More specifically, 
+\scheme|conda| corresponds to a \emph{soft-cut}~\cite{ClocksinClause}, while \scheme|condu|
+  corresponds to Mercury's \emph{committed-choice}~\cite{Fergus-Henderson:1996uq,Naish:1995pr}.}.
+The examples from chapter 10 of \emph{The Reasoned Schemer}~\cite{trs}
+demonstrate uses of \scheme|conda| and \scheme|condu|, and
+the pitfalls that await the unsuspecting programmer.
+
+\scheme|conda| and \scheme|condu| differ from \scheme|conde| in that
+at most one clause can succeed.  Furthermore, the clauses are tried in
+order, from top to bottom.  Also, the first goal in each clause is
+treated specially, as a ``test'' goal that determines whether to
+commit to that clause; in this way, \scheme|conda| and \scheme|condu|
+are reminiscent of \scheme|cond|.
+
+For example,
+
+\schemedisplayspace
+\begin{schemedisplay}
+(run* (x)
+  (conda
+    ((== 'olive x))
+    ((== 'oil x))))
+\end{schemedisplay}
+
+\noindent returns \scheme|'(olive)| since \scheme|conda| commits to
+the first clause when \mbox{\scheme|(== 'olive x)|} succeeds.
+However,
+
+\schemedisplayspace
+\begin{schemedisplay}
+(run* (x)
+  (conda
+    ((== 'virgin x) (== #t #f))
+    ((== 'olive x))
+    ((== 'oil x))))
+\end{schemedisplay}
+
+\noindent returns \scheme|'()| since \mbox{\scheme|(== #t #f)|} fails,
+and since \scheme|conda| committed to the first clause once
+\mbox{\scheme|(== 'virgin x)|} succeeded.
+The expression
+
+\schemedisplayspace
+\begin{schemedisplay}
+(run* (q)
+  (conda
+    ((== #t #f))
+    (alwayso))
+  (== #t q))
+\end{schemedisplay}
+
+\noindent diverges.  The ``test'' goal for the first clause,
+\mbox{\scheme|(#t #f)|}, fails.  The test goal for the second clause,
+\scheme|alwayso|, succeeds; therefore \scheme|conda| commits to this
+clause.  Since \scheme|alwayso| can succeed an unbounded number of
+times, the \scheme|run*| expression diverges.
+
+However, if we replace \scheme|conda| with \scheme|condu|, the
+resulting expression
+
+\schemedisplayspace
+\begin{schemedisplay}
+(run* (q)
+  (condu
+    ((== #t #f))
+    (alwayso))
+  (== #t q))
+\end{schemedisplay}
+
+\noindent returns \scheme|'(#t)|.  This is because the test goal of a
+\scheme|condu| clause can succeed at most once, which is the only
+difference between \scheme|conda| and \scheme|condu|.
+
+The next impure operator, \scheme|onceo|, can be trivially defined
+using \scheme|condu|.  \scheme|onceo| takes a single argument, which
+must be a goal; \scheme|onceo| ensures that when the goal is run it
+produces at most a single answer.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define onceo
+  (lambda (g)
+    (condu
+      (g))))
+\end{schemedisplay}
+
+\noindent For example, \mbox{\scheme|(run* (q) (onceo alwayso))|} produces \scheme|'(_.0)|.
+
+
+\scheme|copy-termo| creates a copy of its first argument, consistently
+replacing unassociated logic variables with new variables; the
+resulting copy is then associated with the second argument.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(run* (q)
+  (exist (w x y z)
+    (== `(a ,x 5 ,y ,x) w)
+    (copy-termo w z)
+    (== `(,w ,z) q))) $\Rightarrow$
+\end{schemedisplay}
+\nspace
+\begin{schemeresponse}
+(((a _.0 5 _.1 _.0) (a _.2 5 _.3 _.2)))
+\end{schemeresponse}
+
+\noindent A major theme of Chapter~\ref{alphatapchapter} is how
+\scheme|copy-termo| can be replaced with a relational combination of
+nominal unification and tagging, at least in certain cases.

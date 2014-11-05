@@ -1,0 +1,385 @@
+%!TEX TS-program = xelatex
+% vim:syntax=none
+
+%\documentclass[onecolumn, 11pt, oneside, openright, dvipdfm]{book}
+%\documentclass[onecolumn, 11pt, oneside, openright, dvipdfmx]{book}
+\documentclass[onecolumn, 11pt, oneside, openright]{book}
+
+%\documentclass[onecolumn, 11pt, twosides, openright, dvipdfm]{book}
+
+%\usepackage[dvipdfm,CJKbookmarks,bookmarks=true,bookmarksopen=true]{hyperref}
+%\usepackage[dvipdfmx,CJKbookmarks,bookmarks=true,bookmarksopen=true]{hyperref}
+
+\newcommand{\thesisauthor}[0]{William E. Byrd}
+\newcommand{\thesistitle}[0]{Relational Programming in miniKanren: \\ Techniques, Applications, and Implementations}
+% [Dan thinks 'Limitations' may be better than obstacles]
+\newcommand{\thesiskeywords}[0]{Kwd1, Kwd2, Kwd3}
+\newcommand{\thesismonth}[0]{August}
+\newcommand{\thesisyear}[0]{2009}
+%\newcommand{\thesisdate}[0]{\today}
+\newcommand{\thesisdate}[0]{May 7, 2009}
+
+
+\newcommand{\thesiscommitteemembers}[0]{%
+\cmember{Daniel P. Friedman, Ph.D. \\ (Principal Advisor)}
+\cmember{Amr Sabry, Ph.D.}
+\cmember{Christopher T. Haynes, Ph.D.}
+\cmember{Lawrence S. Moss, Ph.D.}
+}
+
+
+
+\usepackage{microtype}
+
+\usepackage{natbib}
+\usepackage{hyphenat}
+\usepackage{amsmath}
+\usepackage{slatex}
+\usepackage{alltt}
+\usepackage{amssymb}
+\usepackage{amsfonts}
+
+\usepackage{verbatim}
+\usepackage{url}
+\usepackage{float}
+\usepackage{DraTex}
+\usepackage[compact]{titlesec}
+\usepackage[bbgreekl]{mathbbol}
+%%% the cspex option loads the infamous stmaryrd font
+
+\usepackage{comment}
+%\usepackage{mathabx}
+
+\def\schemecodehook{\setlength{\baselineskip}{0.5\baselineskip}}
+
+\addtolength{\textwidth}{.5in}
+\addtolength{\textheight}{.5in}
+\setlength{\topmargin}{.25in}
+\usepackage{fontspec}
+\usepackage{hanging}
+\usepackage{xltxtra}
+\setlength{\oddsidemargin}{.75in}
+\setlength{\evensidemargin}{.25in}
+
+%\defaultfontfeatures{Scale=MatchLowercase} 
+%\setmainfont[Mapping=tex-text,Scale=1.0]{Charis SIL}
+%\setsansfont[Mapping=tex-text,Scale=0.9]{Geneva}
+%\setmonofont[Scale=0.88]{Monaco}
+
+\usepackage{makeidx}
+
+
+\usepackage[compact]{fancyvrb1}
+\usepackage{fancyvrb}
+%\fvset{xleftmargin=\parindent,baseline=t}
+\DefineVerbatimEnvironment{code}{Verbatim}{commandchars=\\\{\}}
+\DefineVerbatimEnvironment{Code}{Verbatim} 
+ {baselinestretch=1.1,
+  frame=single,
+  framerule=0.5pt,
+  commandchars=\\\{\}}
+\DefineVerbatimEnvironment{Transcript}{Verbatim}
+ {baselinestretch=1.1,
+  frame=lines,
+  xleftmargin=4em,
+  xrightmargin=4em,
+  framerule=0.5pt,
+  numbers=left,
+  numbersep=.5em,
+  commandchars=\\\{\}}
+
+\usepackage{rotating}
+\usepackage{multicol,ragged2e}
+
+
+%% FIXME - get hyperlinks working, and uncomment 'phantomsection' below
+%% \usepackage[xetex,CJKbookmarks,bookmarks=true,bookmarksopen=true]{hyperref}
+%% \hypersetup{
+%%     pdftitle={\thesistitle},
+%%     pdfauthor={\thesisauthor},
+%%     pdfkeywords={\thesiskeywords},
+%%     bookmarksnumbered=true,
+%% %    pagebackref=true,
+%%     breaklinks=true,
+%%     urlcolor=blue,
+%%     colorlinks=true,
+%%     citecolor=blue,          %citeref's color
+%%     linkcolor=blue,
+%% }
+
+
+\include{macros}
+
+\defschememathescape{$} % $
+
+\def\qqmagicoff{}
+\def\qqmagicon{}
+
+%\def\schemedisplayspace{\vspace{0.5cm}}
+\def\schemedisplayspace{\vspace{0.2cm}}
+
+
+%%%% Nominal Biography
+% http://www4.in.tum.de/~urbanc/NomBib/nominal.html
+
+% Uncomment to use author-date citation format
+\bibpunct();A{},
+\let\cite=\citep
+
+\bibliographystyle{abbrvnat}
+%\bibliographystyle{plainnat}
+%\bibliographystyle{acm}
+%\bibliographystyle{plain}
+
+\VerbatimFootnotes
+
+\makeindex
+
+
+\begin{schemeregion}
+
+\begin{document}
+
+\frontmatter
+
+\title{\thesistitle{}}
+
+\author{\thesisauthor{}}
+
+\thispagestyle{empty}
+
+\mbox{}
+\vspace{1in}
+
+%\newcommand{\fstpagefont}[0]
+%{\fontspec{Hoefler Text}}
+
+\begin{center}
+{ 
+%  \fstpagefont{}
+  \fontsize{24}{24}
+  \noindent \scshape \thesistitle{} \\
+}
+\vspace{2in}
+{\fontsize{16}{16} % \fstpagefont{} 
+\scshape \thesisauthor{}}
+
+\vspace{1in}
+{ \fontsize{14}{14} % \fstpagefont{}
+\scshape
+  Submitted to the faculty of the \\
+  University Graduate School \\
+  in partial fulfillment of the requirements \\
+  for the degree \\
+  Doctor of Philosophy \\
+  in the Department of Computer Science, \\
+  Indiana University \\
+  \vspace{.5in}
+  \thesismonth{}, \thesisyear{}}
+\end{center}
+
+\newpage
+%\thispagestyle{empty}
+
+\newcommand{\cmember}[1]{
+
+\vspace{1in}
+\hfill 
+\begin{minipage}{3.5in}
+\begin{center}
+\rule{3.5in}{1pt}
+#1 
+\end{center}
+\end{minipage}
+}
+
+{
+  \fontsize{12}{12}
+\noindent Accepted by the faculty of the University Graduate School,
+Indiana University, in partial fulfillment of the requirements for the
+degree Doctor of Philosophy\vspace{.5in}
+
+\thesiscommitteemembers{}
+
+\vfill{}
+\noindent Bloomington, Indiana\\
+\thesisdate{}
+}
+
+\newpage
+
+{
+  \fontsize{12}{12}
+  \mbox{}
+  \vfill
+
+  \hrule
+
+  \begin{center}
+    Copyright \copyright{} \thesisyear{}, \thesisauthor{}\\ 
+    All rights reserved
+    \end{center}
+}
+
+%\setlength{\baselineskip}{2\baselineskip}
+%\setlength{\parskip}{0\baselineskip}
+
+\titlespacing*{\section}{0pt}{*4}{*1.5}
+\titlespacing*{\subsection}{0pt}{*4}{*1.5}
+\titlespacing*{\subsubsection}{0pt}{*4}{*1.5}
+
+\include{dedication}
+\include{acknowledgments}
+\include{abstract}
+
+{
+\setcounter{tocdepth}{1}
+\setlength{\parskip}{0pt}
+\tableofcontents
+}
+
+\newpage
+
+\mainmatter
+
+\include{intro}
+
+\part{Core miniKanren}\label{coremkpart}
+
+% Part~\ref{coremkpart} presents the core miniKanren language, which we
+% will extend in the latter parts of the dissertation.
+% Chapter~\ref{mkintrochapter} introduces the core language, along with
+% a few simple examples, while chapter~\ref{mkimplchapter} presents the
+% implementation of the core language.  These two chapters are
+% especially important, since they form the foundation for the advanced
+% techniques and implementations that follow.  In Chapter~\ref{walkimpl}
+% we optimize the \scheme|walk| algorithm presented in
+% Chapter~\ref{mkimplchapter}, which is the heart of miniKanren's
+% unifier.  Chapter~\ref{divergencechapter} attempts to categorize the
+% many ways miniKanren programs can diverge, and describes techniques
+% that can be used to avoid each type of divergence.  Avoiding
+% divergence while maintaining declarativeness is what makes relational
+% programming so fascinating, yet so challenging.
+% Chapter~\ref{arithchapter} presents a non-trivial application of core
+% miniKanren: a constraint-free arithemtic system with strong
+% termination guarantees.
+
+\include{mkintro}
+
+\include{mkimpl}
+
+\include{walkimpl}
+
+\include{divergence}
+
+\include{arith}
+
+\part{Disequality Constraints}\label{diseqpart}
+
+% Part~\ref{diseqpart} extends core miniKanren with disequality
+% constraints, which allow us to express that two terms are different,
+% and can never be unified.  Disequality constraints express a very
+% limited form of negation, and can be seen as a simple kind of
+% constraint logic programming.  Chapter~\ref{diseqchapter} describes
+% disequality constraints from the perspective of the user, while
+% Chapter~\ref{diseqimplchapter} shows how we can use unification in a
+% clever way to simply and efficiently implement the constraints.  We
+% give special attention to \emph{constraint reification}---the process
+% of displaying constraints in a human-friendly manner.
+
+\include{diseq}
+
+\include{diseqimpl}
+
+\part{Nominal Logic}\label{nominallogicpart}
+
+% Part~\ref{nominallogicpart} extends core miniKanren with operators for
+% expressing nominal logic; we call the resulting language \alphakanren.
+% Nominal logic allows us to easily express notions of scope and
+% binding, which is useful when writing declarative interpreters, type
+% inferencers, and many other relations that deal with variables.
+% Chapter~\ref{akchapter} introduces nominal logic, explains
+% \alphakanren's new language constructs, and provides a few simple
+% example programs.  Chapter~\ref{alphatapchapter} presents a
+% non-trivial application of \alphakanren: a relational theorem prover.
+% In Chapter~\ref{akimplchapter} we present our implementation of
+% \alphakanren, including two different implementations of nominal
+% unification.
+
+\include{ak}
+
+\include{alphatap}
+
+\include{akimpl}
+
+\part{Tabling}\label{tablingpart}
+
+% Part~\ref{tablingpart} adds tabling to our implementation of core
+% miniKanren.  Tabling is a form of memoization: the answers produced by
+% a tabled relation are ``remembered'' (that is, stored in a table), so
+% that subsequent calls to the relation can avoid recomputing the
+% answers.  Tabling allows our programs to run more efficiently in many
+% cases; more importantly, many programs that would otherwise diverge
+% terminate when using tabling.  Chapter~\ref{tablingchapter} introduces
+% the notion of tabling, and explains which programs benefit from
+% tabling.  
+% Chapter~\ref{tablingimplchapter} presents our streams-based
+% implementation of tabling, which demonstrates the advantage of
+% embedding miniKanren in a language with higher-order functions.
+
+\include{tabling}
+
+\include{tablingimpl}
+
+\part{Ferns}\label{fernspart}
+
+% Part~\ref{fernspart} presents a bottom-avoiding data structure called
+% \emph{ferns}, and shows how ferns can be used to avoid
+% expression-level divergence.  Chapter~\ref{fernschapter} introduces
+% the ferns data structure and implements a simple, miniKanren-like
+% language using ferns.  Chapter~\ref{fernsimpl} presents our embedding
+% of ferns in Scheme.
+
+\include{ferns}
+
+\include{fernsimpl}
+
+\part{Context and Conclusions}\label{contextpart}
+
+% Part~\ref{contextpart} provides context and conclusions for the work
+% in this dissertation.  Chapter~\ref{relatedworkchapter} describes
+% related work, while Chapter~\ref{futureworkchapter} proposes future
+% research.  We offer our conclusions in Chapter~\ref{conclusionchapter}
+
+\include{related}
+
+\include{future}
+
+\include{conclusion}
+
+\newpage
+
+\appendix
+
+\include{helpers}
+
+\include{pmatch}
+
+\include{matche}
+
+\include{enginesappendix}
+
+\include{akinferparserappendix}
+
+\backmatter
+
+% \phantomsection
+\addcontentsline{toc}{chapter}{\bibname}
+
+\bibliography{thesis}
+
+\end{schemeregion}
+
+%\include{vita}
+
+\end{document}

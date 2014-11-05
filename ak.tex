@@ -1,0 +1,754 @@
+\chapter{Techniques II:  Nominal Logic}\label{akchapter}
+
+In this chapter we introduce \alphakanren, which extends core miniKanren with
+operators for \emph{nominal logic programming}.  \alphakanrensp was inspired by
+\alphaprolog\ \cite{CheneyThesis,CheneyU04} and MLSOS \cite{lakin2007},
+and their use of nominal logic \cite{Pitts03} to solve a class of
+problems more elegantly than is possible with conventional logic
+programming.
+
+Like \alphaprolog\ and MLSOS, \alphakanrensp allows programmers to explicitly manage
+variable names and bindings, making it easier to write interpreters, type
+inferencers, and other programs that must reason about scope.  \alphakanrensp
+also eases the burden of implementing a language from its structural
+operational semantics, since the requisite side-conditions 
+can often be trivially encoded in nominal logic.
+
+A standard class of such side conditions is to state that a certain
+variable name cannot occur free in a particular expression.  It is a
+simple matter to check for free occurrences of a variable name in a
+fully-instantiated term, but in a logic program the term might contain
+unbound logic variables.  At a later point in the program those
+variables might be instantiated to terms containing the variable name
+in question.  Also, when the writer of semantics employs the equality
+symbol, what they really mean is that the two terms are the same \emph{up
+  to $\alpha$-equivalence}, as in the variable hygiene convention
+popularized by \citet{barendregt84}.  As functional programmers, we
+would never quibble with the statement: \mbox{$\lambda x.x$ $=$
+  $\lambda y.y$}, yet without the implicit assumption that one can
+rename variables using $\alpha$-conversion, we would have to forgo
+this obvious equality.  And again, if either expression contains an
+unbound logic variable, it is impossible to perform a full parallel
+tree walk to determine if the two expressions are $\alpha$-equivalent:
+at least part of the tree walk must be deferred until one or both
+expressions are fully instantiated.
+
+This chapter is organized as follows.  Section~\ref{akintro}
+introduces the \alphakanrensp operators, and provides trivial examples
+of their use.  Section~\ref{aksubst} provides a concise but useful
+\alphakanrensp program that performs capture-avoiding substitution.
+Section~\ref{aktypeinf} presents a second \alphakanrensp program: a
+type inferencer for a subset of Scheme.
+
+\section{Introduction to \alphakanren}\label{akintro}
+\alphakanrensp extends miniKanren with two additional operators, \scheme|fresh| and \scheme|hash| (entered as {\tt hash}), and one term constructor, \scheme|tie| (entered as {\tt tie}).
+
+\scheme|fresh|, which syntactically looks like \scheme|exist|,
+introduces new \emph{noms} into its scope.  (Noms are also called
+``names'' or ``atoms'', overloaded terminology which we avoid.)
+Conceptually, a nom represents a variable name\footnote{Less commonly,
+  a nom may represent a non-variable entity.  For example, a nom may
+  represent a channel name in the $\pi$-calculus---see
+  \citet{CheneyThesis} for details.}; however, a nom behaves more like
+a constant than a variable, since it only unifies with itself or with
+an unassociated variable.
+
+\wspace
+
+\noindent\scheme|(run* (q) (fresh (a) (== a a)))| $\Rightarrow$ \begin{schemeresponsebox}(_$_{_{0}}$)\end{schemeresponsebox}
+
+\tspace
+
+\noindent\scheme|(run* (q) (fresh (a) (== a 5)))| $\Rightarrow$ \begin{schemeresponsebox}()\end{schemeresponsebox}
+
+\tspace
+
+\noindent\scheme|(run* (q) (fresh (a b) (== a b)))| $\Rightarrow$ \begin{schemeresponsebox}()\end{schemeresponsebox}
+
+\tspace
+
+\noindent\scheme|(run* (q) (fresh (b) (== b q)))| $\Rightarrow$ \begin{schemeresponsebox}(a$_{_{0}}$)\end{schemeresponsebox}
+
+\wspace
+
+A reified nom is subscripted in the same fashion as a reified
+variable, but \schemeresult|a| is used instead
+of an underscore (\scheme|_|)---hence
+the \begin{schemeresponsebox}(a$_{_{0}}$)\end{schemeresponsebox} in
+the final example above.  \scheme|fresh| forms can be nested, which
+may result in noms being shadowed.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(run* (q)
+  (exist (x y z)
+    (fresh (a)
+      (== x a)
+      (fresh (a b)
+        (== y a)
+        (== `(,x ,y ,z ,a ,b) q))))) $\Rightarrow$ 
+\end{schemedisplay}
+\nspace
+\begin{schemeresponse}
+((a$_{_{0}}$ a$_{_{1}}$ _$_{_{0}}$ a$_{_{1}}$ a$_{_{2}}$))
+\end{schemeresponse}
+
+\noindent Here \schemeresult|a$_{_{0}}$|,
+\schemeresult|a$_{_{1}}$|, and
+\schemeresult|a$_{_{2}}$|
+represent different noms, which will not unify with each other.
+
+
+\scheme|tie| is a \emph{term constructor} used to limit the scope
+of a nom within a term.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define-syntax tie
+  (syntax-rules ()
+    ((_ a t) `(tie-tag ,a ,t))))
+\end{schemedisplay}
+\noindent Terms constructed using \scheme|tie| are called \emph{binders}.
+In the term created by the expression
+\mbox{\scheme|(tie a t)|}, all occurrences of the nom \scheme|a|
+within term \scheme|t| are considered bound.
+We refer to the term \scheme|t| as the \emph{body} of \mbox{\scheme|(tie a t)|}, and to the nom \scheme|a| 
+as being in \emph{binding position}.
+The \scheme|tie| constructor does not create noms; 
+rather, it delimits the scope of noms, 
+already introduced using \scheme|fresh|.
+
+\newpage
+
+For example, consider this \scheme|run*| expression.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(run* (q)
+  (fresh (a b)
+    (== (tie a `(foo ,a 3 ,b)) q))) $\Rightarrow$
+\end{schemedisplay}
+\nspace
+\begin{schemeresponse}
+((tie-tag a$_{_{0}}$ (foo a$_{_{0}}$ 3 a$_{_{1}}$)))
+\end{schemeresponse}
+
+\noindent The tagged list \begin{schemeresponsebox}(tie-tag a$_{_{0}}$ (foo a$_{_{0}}$ 3 a$_{_{1}}$))\end{schemeresponsebox} is the reified value of the term constructed using \scheme|tie|.  (The tag name \scheme|tie-tag| is a pun---the bowtie \scheme|tie| is the ``tie that binds.'')  The nom whose reified value is 
+\schemeresult|a$_{_{0}}$|
+occurs bound within the term
+\begin{schemeresponsebox}(tie-tag a$_{_{0}}$ (foo a$_{_{0}}$ 3 a$_{_{1}}$))\end{schemeresponsebox}
+while \schemeresult|a$_{_{1}}$| occurs free in that same term.
+
+\scheme|hash|~introduces a \emph{freshness constraint} (henceforth referred to as simply a \emph{constraint}).  The expression \mbox{\scheme|(hash a t)|}
+asserts that the nom \scheme|a| does \emph{not} occur free in term
+\scheme|t|---if \scheme|a| occurs free in \scheme|t|, then
+\mbox{\scheme|(hash a t)|} fails.  Furthermore, if \scheme|t| contains
+an unbound variable \scheme|x|, and some later unification 
+involving \scheme|x| results in
+\scheme|a| occurring free in \scheme|t|, then that unification fails.
+
+\wspace
+
+\noindent\scheme|(run* (q) (fresh (a) (== `(3 ,a #t) q) (hash a q)))| $\Rightarrow$ \begin{schemeresponsebox}()\end{schemeresponsebox}
+
+\tspace
+
+\noindent\scheme|(run* (q) (fresh (a) (hash a q) (== `(3 ,a #t) q)))| $\Rightarrow$ \begin{schemeresponsebox}()\end{schemeresponsebox}
+
+\tspace
+
+\noindent\scheme|(run* (q) (fresh (a b) (hash a (tie b a))))| $\Rightarrow$ \begin{schemeresponsebox}()\end{schemeresponsebox}
+
+\tspace
+
+\noindent\scheme|(run* (q) (fresh (a) (hash a (tie a a))))| $\Rightarrow$ \begin{schemeresponsebox}(_$_{_{0}}$)\end{schemeresponsebox}
+
+%\tspace
+
+\begin{schemedisplay}
+(run* (q)
+  (exist (x y z)
+    (fresh (a)      
+      (hash a x)
+      (== `(,y ,z) x)
+      (== `(,x ,a) q)))) $\Rightarrow$
+\end{schemedisplay}
+\nspace
+\begin{schemeresponse}
+((((_$_{_{0}}$ _$_{_{1}}$) a$_{_{0}}$) : ((a$_{_{0}}$ . _$_{_{0}}$) (a$_{_{0}}$ . _$_{_{1}}$))))
+\end{schemeresponse}
+
+\noindent In the fourth example, the constraint \mbox{\scheme|(hash a (tie a a))|} is not violated because \scheme|a| does not occur free in \mbox{\scheme|(tie a a)|}.  
+In the final example, the partial instantiation of \scheme|x| causes the constraint introduced by
+\mbox{\scheme|(hash a x)|} to be ``pushed down'' onto the unbound variables
+\scheme|y| and \scheme|z|.  The
+answer comprises two parts, separated by a colon and enclosed in an
+extra set of parentheses: the reified value of \mbox{\scheme|`((,y ,z) ,a)|}
+and a list of reified constraints indicating that
+\scheme|a| cannot occur free in either \scheme|y| or \scheme|z|.
+
+The notion of a constraint is prominent in the standard definition of $\alpha$-equivalence \cite{stoy}:
+
+\wspace
+
+\centerline{$\lambda a.M$ $\equiv _{\alpha}$ $\lambda b.$\scheme|[b/a]|$M$
+where \scheme|b| does not occur free in \scheme|M|.}
+
+\wspace
+
+\noindent In \alphakanrensp this constraint is expressed as \mbox{\scheme|(# b M)|}.
+We shall revisit the connection between constraints and $\alpha$-equivalence shortly.
+
+We now extend the standard notion of unification to that of \emph{nominal unification} \cite{Urban-Pitts-Gabbay/04}, which equates $\alpha$-equivalent binders.  Consider this \scheme|run*| expression:
+\mbox{\scheme|(run* (q) (fresh (a b) (== (tie a a) (tie b b))))| $\Rightarrow$ \schemeresult|`(_$_{_{0}}$)|}.
+Although \scheme|a| and \scheme|b| are distinct noms, \mbox{\scheme|(== (tie a a) (tie b b))|} succeeds.  According to the rules of nominal unification, the binders \mbox{\scheme|(tie a a)|} and \mbox{\scheme|(tie b b)|} represent the same term, and therefore unify.
+
+The reader may suspect that, as in the definition of $\alpha$-equivalence 
+given above, nominal unification uses substitution to equate binders
+
+\wspace
+
+\centerline{\mbox{\scheme|(tie a a)|} $\equiv _{\alpha}$ \mbox{\scheme|(tie b [b/a]a)|}}
+
+\wspace
+
+\noindent however, this is not the case.
+
+Unfortunately, naive substitution does not preserve
+$\alpha$-equivalence of terms, as shown in the following example given
+by \citet{Urban-Pitts-Gabbay/04}. Consider the $\alpha$-equivalent
+terms \mbox{\scheme|(tie a b)|} and \mbox{\scheme|(tie c b)|};
+replacing all free occurrences of \scheme|b| with \scheme|a| in both
+terms yields \mbox{\scheme|(tie a a)|} and \mbox{\scheme|(tie c a)|},
+which are no longer $\alpha$-equivalent.
+
+Rather than using capture-avoiding substitution to address this
+problem, nominal logic uses the simple and elegant notion of a
+\emph{nom swap}.  Instead of performing a uni-directional substitution
+of \scheme|a| for \scheme|b|, the unifier exchanges all occurrences of
+\scheme|a| and \scheme|b| within a term, regardless of whether those
+noms appear free, bound, or in the binding position of a
+\scheme|tie|-constructed binder.  Applying the swap \mbox{\scheme|`(,a ,b)|}
+ to \mbox{\scheme|(tie a b)|} and \mbox{\scheme|(tie c b)|}
+yields the $\alpha$-equivalent terms \mbox{\scheme|(tie b a)|} and
+\mbox{\scheme|(tie c a)|}.
+
+When unifying \mbox{\scheme|(tie a a)|} and \mbox{\scheme|(tie b b)|}
+in the \scheme|run*| expression above, the nominal unifier first
+creates the swap \mbox{\scheme|`(,a ,b)|} containing the noms in the
+binding positions of the two terms.  The unifier then applies this
+swap to \mbox{\scheme|(tie a a)|}, yielding \mbox{\scheme|(tie b b)|}
+(or equivalently, applies the swap to \mbox{\scheme|(tie b b)|},
+yielding \mbox{\scheme|(tie a a)|}).  Obviously \mbox{\scheme|(tie b
+    b)|} unifies with itself, according to the standard rules of
+unification, and thus the nominal unification succeeds.
+
+Of course, the terms being unified might contain unbound variables.
+In the simple example
+
+\wspace
+
+\noindent\scheme|(run* (q) (fresh (a b) (== (tie a q) (tie b b))))| $\Rightarrow$ \begin{schemeresponsebox}(a$_{_{0}}$)\end{schemeresponsebox}
+
+\wspace
+
+\noindent 
+the swap \mbox{\scheme|`(,a ,b)|} can be applied to
+\mbox{\scheme|(tie b b)|}, yielding \mbox{\scheme|(tie a a)|}.
+The terms \mbox{\scheme|(tie a a)|} and \mbox{\scheme|(tie a q)|}
+are then unified, associating \scheme|q| with \scheme|a|.
+However, in some cases a swap cannot be performed until a variable has become at
+least partially instantiated.  For example, in the first call to \scheme|==| in 
+
+\schemedisplayspace
+\begin{schemedisplay}
+(run* (q)
+  (fresh (a b)
+    (exist (x y)
+      (== (tie a (tie a x)) (tie a (tie b y)))
+      (== `(,x ,y) q))))
+\end{schemedisplay}
+
+\noindent the unifier cannot apply the swap \mbox{\scheme|`(,a ,b)|} 
+to either \mbox{\scheme|x|} or \mbox{\scheme|y|}, since they are
+both unbound.
+(The unifier does not generate a swap for the outer binders, since they
+have the same nom in their binding positions.)
+
+Nominal unification solves this problem by introducing the notion of a \emph{suspension}, 
+which is a record of \emph{delayed swaps} that may be applied later.
+We represent a suspension using the \scheme|susp-tag| data structure, 
+which comprises a list of suspended swaps and a variable.
+
+\schemedisplayspace
+\begin{schemedisplay}
+$\hspace{1.8cm}$`(susp-tag ((,a_n ,b_n) ... (,a_1 ,b_1)) ,x)
+\end{schemedisplay}
+
+\noindent The swaps are deferred until the variable \scheme|x| is
+instantiated (at least partially); at this point the swaps are applied
+to the instantiated portion of the term associated with \scheme|x|.
+Swaps are applied from right to left; that is, the result of applying
+the swaps to a term \scheme|t| can be determined by first exchanging
+all occurrences of noms \scheme|a_1| and \scheme|b_1| within
+\scheme|t|, then exchanging \scheme|a_2| and \scheme|b_2| within the
+resulting term, and continuing in this fashion until finally
+exchanging \scheme|a_n| with \scheme|b_n|.
+
+Now that we have the notion of a suspension, we can define equality on
+binders (adapted from \citealt{Urban-Pitts-Gabbay/04}):
+
+\begin{quotation}
+\noindent \mbox{\scheme|(tie a M)|} and \mbox{\scheme|(tie b N)|} are $\alpha$-equivalent if and only if
+ \scheme|a| and \scheme|b| are the same nom and \scheme|M| is $\alpha$-equivalent to \scheme|N|, or if 
+ \mbox{\scheme|`(susp-tag ((,a ,b)) ,M)|} is $\alpha$-equivalent to \scheme|N| and \mbox{\scheme|(hash b M)|}.
+\end{quotation}
+
+\noindent The side condition \mbox{\scheme|(hash b M)|} is necessary,
+since if \scheme|b| occurred free in \scheme|M|, then \scheme|b| would be inadvertently 
+captured (and replaced with \scheme|a|) by the suspension \mbox{\scheme|`(susp-tag ((,a ,b)) ,M)|}.
+
+
+Having defined equality on binders, 
+we can examine the result of the previous \scheme|run*| expression.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(run* (q)
+  (fresh (a b)
+    (exist (x y)
+      (== (tie a (tie a x)) (tie a (tie b y)))
+      (== `(,x ,y) q)))) $\Rightarrow$ 
+\end{schemedisplay}
+\nspace
+\begin{schemeresponse}((((susp-tag ((a$_{_{0}}$ a$_{_{1}}$)) _$_{_{0}}$) _$_{_{0}}$) : ((a$_{_{0}}$ . _$_{_{0}}$))))\end{schemeresponse}
+
+\noindent The first call to \scheme|==| 
+applies the swap \mbox{\scheme|`(,a ,b)|}
+to the unbound variable \scheme|y|, and then
+associates 
+the resulting suspension \mbox{\scheme|`(susp-tag ((,a ,b)) ,y)|}
+with \scheme|x|.  
+Of course, the unifier
+could have applied the swap to \scheme|x| instead of \scheme|y|,
+resulting in a symmetric answer.
+The freshness constraint states that the nom \scheme|a| can never
+occur free within \scheme|y|, as required by the definition of 
+binder equivalence.
+
+Here is a translation of a quiz presented in \citet{Urban-Pitts-Gabbay/04}, 
+demonstrating some of the finer points of nominal unification.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(run* (q)
+  (fresh (a b)
+    (exist (x y)
+      (conde
+        ((== (tie a (tie b `(,x ,b))) (tie b (tie a `(,a ,x)))))
+        ((== (tie a (tie b `(,y ,b))) (tie b (tie a `(,a ,x)))))
+        ((== (tie a (tie b `(,b ,y))) (tie b (tie a `(,a ,x)))))
+        ((== (tie a (tie b `(,b ,y))) (tie a (tie a `(,a ,x))))))
+      (== `(,x ,y) q)))) $\Rightarrow$
+\end{schemedisplay}
+\nspace
+\begin{schemeresponse}
+((a$_{_{0}}$ a$_{_{1}}$)
+ (_$_{_{0}}$ (susp-tag ((a$_{_{0}}$ a$_{_{1}}$)) _$_{_{0}}$))
+ ((_$_{_{0}}$ (susp-tag ((a$_{_{1}}$ a$_{_{0}}$)) _$_{_{0}}$)) : ((a$_{_{1}}$ . _$_{_{0}}$))))
+\end{schemeresponse}
+The first \scheme|conde| clause fails, since \scheme|x| cannot 
+be associated with both \scheme|a| and \scheme|b|.  
+The second clause succeeds, associating \scheme|x| with \scheme|a| and \scheme|y|
+with \scheme|b|.  The third clause applies the swap \mbox{\scheme|`(,a ,b)|}
+to \mbox{\scheme|(tie a `(,a ,x))|}, yielding
+\mbox{\scheme|`(tie-tag ,b (,b (susp-tag ((,a ,b)) ,x)))|}.  This term is
+then unified with \mbox{\scheme|(tie b `(,b ,y))|}, 
+associating \scheme|y| with the suspension
+\mbox{\scheme|`(susp-tag ((,b ,a)) ,x)|}.
+The fourth clause should look familiar---it is similar 
+to the previous \scheme|run*| expression.
+
+We can interpret the successful unification of binders
+\mbox{\scheme|(tie a a)|} and \mbox{\scheme|(tie b b)|} 
+as showing that the $\lambda$-calculus
+terms $\lambda a.a$ and $\lambda b.b$ are identical, up to
+$\alpha$-equivalence. We need not restrict our interpretation to
+$\lambda$ terms, however, since other scoping mechanisms have similar
+properties. For example, the same successful unification also shows that $\forall a . a$
+and $\forall b . b$ are equivalent in first-order logic, and
+similarly, that $\exists a . a$ and $\exists b . b$ are equivalent.
+
+We can tag terms in order to disambiguate their interpretation.  For example, this program shows that $\lambda a . \lambda b . a$ and $\lambda c . \lambda d . c$ are equivalent.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(run* (q)
+  (exist (t u)
+    (fresh (a b c d)
+      (== `(lam (tie-tag ,a (lam (tie-tag ,b (vartag ,a))))) t)
+      (== `(lam (tie-tag ,c (lam (tie-tag ,d (vartag ,c))))) u)))) $\Rightarrow$
+\end{schemedisplay}
+\nspace
+\begin{schemeresponse}
+(_$_{_{0}}$)
+\end{schemeresponse}
+
+Of course, not all $\lambda$-calculus terms are equivalent.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(run* (q)
+  (exist (t u)
+    (fresh (a b c d)
+      (== `(lam (tie-tag ,a (lam (tie-tag ,b (vartag ,a))))) t)
+      (== `(lam (tie-tag ,c (lam (tie-tag ,d (vartag ,d))))) u)))) $\Rightarrow$
+\end{schemedisplay}
+\nspace
+\begin{schemeresponse}
+()
+\end{schemeresponse}
+
+\noindent Here \mbox{\scheme|(== `(lam ,t2) `(lam ,u2))|} fails, 
+showing that terms $\lambda a . \lambda b . a$ and $\lambda c . \lambda d . d$ 
+are not $\alpha$-equivalent.
+
+\section{Capture-avoiding Substitution}\label{aksubst}
+We now consider a simple, but useful, nominal logic program 
+adapted from \citet{CheneyU04} that performs capture-avoiding
+substitution (that is, $\beta$-substitution).
+\scheme|substo| implements the relation \mbox{\scheme|[new/a]e = out|}
+where \scheme|e|, \scheme|new|, and \scheme|out|
+are tagged lists representing $\lambda$-calculus terms, and
+where \scheme|a| is a nom representing a variable name.
+(We refer the interested reader to \citeauthor{CheneyU04}
+for a full description of \scheme|substo|.)
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define substo  
+  (lambda (e new a out)
+    (match-e `(,e ,out)
+      (`((vartag ,a) ,new))
+      (`((vartag ,y) (vartag ,y))
+       (hash a y))
+      (`((app ,rator ,rand) (app ,ratorres ,randres))
+       (substo rator new a ratorres)
+       (substo rand new a randres))
+      (`((lam (tie-tag ,@c ,body)) (lam (tie-tag ,@c ,bodyres)))
+       (hash c a)
+       (hash c new)
+       (substo body new a bodyres)))))
+\end{schemedisplay}
+
+The first \scheme|substo| example shows that
+$[b/a]\lambda a.ab \equiv _{\alpha} \lambda c.cb$.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(run* (q)
+  (fresh (a b)
+    (substo `(lam (tie-tag ,a (app (vartag ,a) (vartag ,b)))) `(vartag ,b) a q))) $\Rightarrow$
+\end{schemedisplay}
+\nspace
+\begin{schemeresponse}
+((lam (tie-tag a$_{_{0}}$ (app (vartag a$_{_{0}}$) (vartag a$_{_{1}}$)))))
+\end{schemeresponse}
+
+\noindent Naive substitution would have produced $\lambda b.bb$ instead.
+
+This second example shows that $[a/b]\lambda a.b \equiv _{\alpha} \lambda c.a$.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(run* (x)
+  (fresh (a b)
+    (substo `(lam (tie-tag ,a (vartag ,b))) `(vartag ,a) b x))) $\Rightarrow$
+\end{schemedisplay}
+\nspace
+\begin{schemeresponse}
+((lam (tie-tag a$_{_{0}}$ (vartag a$_{_{1}}$))))
+\end{schemeresponse}
+
+\noindent Naive substitution would have produced $\lambda a.a$.
+
+
+\section{Type Inferencer}\label{aktypeinf}
+
+Let us consider a second non-trivial \alphakanrensp example: a type
+inferencer for a subset of Scheme\footnote{This program is an extended
+  and adapted version of the inferencer for the simply-type
+  $\lambda$-calculus presented in \citet{CheneyU04}.}.  We begin with
+the typing rule for integer constants, which are tagged with the
+symbol \scheme|'intc|.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define int-rel
+  (lambda (g exp t)
+    (exist (n)
+      (== `(intc ,n) exp)
+      (== 'int t))))
+\end{schemedisplay}
+
+\noindent The \scheme{!-} relation\footnote{\scheme{!-} is entered as
+  {\tt !-} and is pronounced ``turnstile''.}  relates an expression
+\scheme{exp} to its type \scheme{t} in the type environment
+\scheme{g}.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define !-
+  (lambda (g exp t)
+    (conde
+      ((int-rel g exp t)))))
+\end{schemedisplay}
+
+\noindent We can now infer the types of integer constants: 
+\mbox{\scheme|(run* (q) (!- '() '(intc 5) q))|} returns \scheme|'(int)|.
+
+Inferring the types of integer constants is not very interesting.  We
+therefore add typing rules for variables, $\lambda$ expressions, and
+application.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define var-rel
+  (lambda (g exp t)
+    (exist (x)
+      (== `(vartag ,x) exp)
+      (lookupo x t g))))
+\end{schemedisplay}
+
+\begin{schemedisplay}
+(define lambda-rel
+  (lambda (g exp t)
+    (exist (body trand tbody)
+      (fresh (a)
+        (== `(lam ,(tie a body)) exp)
+        (== `(--> ,trand ,tbody) t)
+        (!- `((,a . ,trand) . ,g) body tbody)))))
+
+(define app-rel
+  (lambda (g exp t)
+    (exist (rator rand trand)
+      (== `(app ,rator ,rand) exp)
+      (!- g rator `(--> ,trand ,t))
+      (!- g rand trand))))
+\end{schemedisplay}
+
+\noindent The \scheme{lookupo} helper relation finds the type
+\scheme{tx} associated with the type variable \scheme{x}
+in the current type environment \scheme{g}.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define lookupo
+  (lambda (x tx g)
+    (exist (a d)
+      (== `(,a . ,d) g)
+      (conde
+        ((== `(,x . ,tx) a))
+        ((exist (x^ tx^)
+           (== `(,x^ . ,tx^) a)
+           (hash x x^)
+           (lookupo x tx d)))))))
+\end{schemedisplay}
+
+\noindent We redefine \scheme|!-| to include the new typing rules.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define !-
+  (lambda (g exp t)
+    (conde
+      ((var-rel g exp t))
+      ((int-rel g exp t))
+      ((lambda-rel g exp t))
+      ((app-rel g exp t)))))
+\end{schemedisplay}
+
+We can now show that \scheme|(lambda (x) (lambda (y) x))|
+has type \mbox{\scheme|($\alpha$ --> ($\beta$ --> $\alpha$))|}.
+
+\wspace
+
+\noindent\scheme|(run* (q) (!- '() (parse '(lambda (x) (lambda (y) x))) q))| $\Rightarrow$ \begin{schemeresponsebox}((--> _.0 (--> _.1 _.0)))\end{schemeresponsebox}
+
+\wspace
+
+\noindent Here we use the parser from Appendix~\ref{akinferparser} to make the code more readable.
+
+The next example shows that self-application doesn't type check, since the nominal unifier 
+uses the occurs check \cite{lloyd:lp}.
+
+\wspace
+
+\noindent\scheme|(run* (q) (!- '() (parse '(lambda (x) (x x))) q))| $\Rightarrow$ \begin{schemeresponsebox}()\end{schemeresponsebox}
+
+\wspace
+
+This example is more interesting, since it searches for expressions
+that \emph{inhabit} the type \mbox{\schemeresult|(--> int int)|}.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(run5 (q) (!- '() q '(--> int int))) $\Rightarrow$
+\end{schemedisplay}
+\nspace
+\begin{schemeresponse}
+((lam (tie-tag a.0 (intc _.0)))
+ (lam (tie-tag a.0 (vartag a.0)))
+ (lam (tie-tag a.0 (app (lam (tie-tag a.1 (intc _.0))) (intc _.1))))
+ (lam (tie-tag a.0 (app (lam (tie-tag a.1 (intc _.0))) (vartag a.0))))
+ (app (lam (tie-tag a.0 (vartag a.0))) (lam (tie-tag a.1 (intc _.0)))))
+\end{schemeresponse}
+
+\noindent These expressions are equivalent to (in order)
+
+\enlargethispage{1em}
+
+\wspace
+
+\noindent\scheme|(lambda (x) n-const)|
+
+\noindent\scheme|(lambda (x) x)|
+
+\noindent\scheme|(lambda (x) ((lambda (y) n-const) m-const))|
+
+\noindent\scheme|(lambda (x) ((lambda (y) n-const) x))|
+
+\noindent\scheme|((lambda (x) x) (lambda (y) n-const))|
+
+\wspace
+
+\noindent where \scheme|n-const| and \scheme|m-const| are some integer constants.
+Each expression inhabits the type \mbox{\schemeresult|(int --> int)|}, although the principal type
+of the expression is either
+\mbox{\schemeresult|($\alpha$ --> $\alpha$)|} (for the identity function) or
+\mbox{\schemeresult|($\alpha$ --> int)|} (for the remaining expressions).
+
+We now extend the language even further, adding boolean constants,
+\scheme|zero?|, \scheme|sub1|, multiplication,
+\scheme|if|-expressions, and a fixed-point operator for defining
+recursive functions.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define bool-rel
+  (lambda (g exp t)
+    (exist (b)
+      (== `(boolc ,b) exp)
+      (== 'bool t))))
+
+(define zero?-rel
+  (lambda (g exp t)
+    (exist (e)
+      (== `(zero? ,e) exp)
+      (== 'bool t)
+      (!- g e 'int))))
+
+(define sub1-rel
+  (lambda (g exp t)
+    (exist (e)
+      (== `(sub1 ,e) exp)
+      (== t 'int)
+      (!- g e 'int))))
+
+ (define *-rel
+  (lambda (g exp t)
+    (exist (e1 e2)
+      (== `(* ,e1 ,e2) exp)
+      (== t 'int)
+      (!- g e1 'int)
+      (!- g e2 'int))))
+
+(define if-rel
+  (lambda (g exp t)
+    (exist (test conseq alt)
+      (== `(if ,test ,conseq ,alt) exp)
+      (!- g test 'bool)
+      (!- g conseq t)
+      (!- g alt t))))
+\end{schemedisplay}
+
+\begin{schemedisplay}
+(define fix-rel
+  (lambda (g exp t)
+    (exist (rand)
+      (== `(fix ,rand) exp)
+      (!- g rand `(--> ,t ,t)))))
+\end{schemedisplay}
+
+We redefine \scheme|!-| one last time.
+
+\enlargethispage{2em}
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define !-
+  (lambda (g exp t)
+    (conde
+      ((var-rel g exp t))
+      ((int-rel g exp t))
+      ((bool-rel g exp t))
+      ((zero?-rel g exp t))
+      ((sub1-rel g exp t))
+      ((fix-rel g exp t))
+      ((*-rel g exp t))
+      ((lambda-rel g exp t))
+      ((app-rel g exp t))
+      ((if-rel g exp t)))))
+\end{schemedisplay}
+
+We can now infer the type of the factorial function.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(run* (q)
+  (!- '() (parse '((fix (lambda (!)
+                          (lambda (n)
+                            (if (zero? n)
+                                1
+                                (* (! (sub1 n)) n))))) 5))
+      q)) $\Rightarrow$
+\end{schemedisplay}
+\nspace
+\begin{schemeresponse}
+(int)
+\end{schemeresponse}
+
+We can also generate pairs of expressions and their types.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(run13 (q)
+  (exist (exp t)
+    (!- '() exp t)
+    (== `(,exp ,t) q))) $\Rightarrow$
+\end{schemedisplay}
+\nspace
+\begin{schemeresponse}
+(((intc _.0) int)
+ ((boolc _.0) bool)
+ ((zero? (intc _.0)) bool)
+ ((sub1 (intc _.0)) int)
+ ((zero? (sub1 (intc _.0))) bool)
+ ((sub1 (sub1 (intc _.0))) int)
+ ((zero? (sub1 (sub1 (intc _.0)))) bool)
+ ((sub1 (sub1 (sub1 (intc _.0)))) int)
+ ((zero? (sub1 (sub1 (sub1 (intc _.0))))) bool)
+ ((* (intc _.0) (intc _.1)) int)
+ ((lam (tie-tag a.0 (intc _.0))) (--> _.1 int))
+ ((zero? (* (intc _.0) (intc _.1))) bool)
+ ((lam (tie-tag a.0 (vartag a.0))) (--> _.0 _.0)))
+\end{schemeresponse}
+
+\noindent For example, the last answer shows that the identity
+function has type \mbox{\schemeresult|($\alpha$ --> $\alpha$)|}.
+
+This ends the introduction to \alphakanren.  For additional simple examples of
+nominal logic programming, we suggest \citet{cheneyurban08}, \citet{CheneyThesis},
+\citet{CheneyU04}, \citet{Urban-Pitts-Gabbay/04}, and
+\citet{lakin2007}, which are also excellent choices for understanding
+the theory of nominal logic.

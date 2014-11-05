@@ -1,0 +1,511 @@
+\chapter{A Slight Divergence}\label{divergencechapter}
+
+In this chapter we explore the divergence of relational programs.  We
+present several divergent miniKanren programs; for each program we
+consider different techniques that can be used to make the program
+terminate.
+
+By their very nature, relational programs are prone to divergence.  As
+relational programmers, we may ask for an infinite number of answers
+from a program, or we may look for a non-existent answer in an
+infinite search tree.  In fact, miniKanren programs can (and do!)
+diverge for a variety of reasons.  A frustration common to beginning
+miniKanren programmers is that of carefully writing or deriving a
+program, only to have it diverge on even simple test cases.  Learning
+to recognize the sources of divergence in a program, and which
+techniques can be used to achieve termination, is a critical stage in
+the evolution of every relational programmer.
+
+To help miniKanren programmers write relations that terminate, this
+chapter presents several divergent example programs; for each program,
+we discuss why it diverges, and how the divergence can be avoided.
+
+It is important to remember that a single relational program may
+contain multiple, and completely different, causes of divergence; such
+programs may require a variety of techniques in order to
+terminate\footnote{Challenge for the reader: construct a single
+miniKanren program that contains every cause of divergence discussed
+in this chapter.  Then use the techniques from this chapter to ``fix''
+the program.}.  Also, a single technique may be useful for avoiding
+multiple causes of divergence, as will be made clear in the examples
+below.  miniKanren does not currently support all of these
+techniques (such as operators on cyclic terms)---unsupported
+techniques are clearly identified in the text.  Even techniques not
+yet supported by miniKanren are of value, however, since they may be
+supported by other programming languages.
+
+We now present the divergent example programs, along with techniques
+for avoiding divergence.  
+
+
+\section*{Example 1}
+
+Consider the divergent \scheme|run*| expression
+
+\schemedisplayspace
+\begin{schemedisplay}
+(run* (q)
+  (exist (x y z)
+    (pluso x y z)
+    (== `(,x ,y ,z) q)))
+\end{schemedisplay}
+
+\noindent where \scheme|pluso| is the ternary addition relation defined
+in Chapter~\ref{arithchapter}.  This expression diverges because
+\mbox{\scheme|(pluso x y z)|} succeeds an unbounded number of times;
+therefore, the \scheme|run*| never stops producing answers.  Although
+it could be argued that this is a ``good'' infinite loop, and that we
+got what we asked for, presumably we want to see some of these
+answers.  Also, the user has no way of knowing that the system is
+producing any answers, since the divergence might be due to one of the
+other causes described below.  (Not to mention that, in general, the
+user cannot tell whether the program is diverging or merely taking a
+very long time to produce an answer.)
+
+We can avoid this divergence in several different ways:
+
+\begin{enumerate}
+
+\item We could replace the \scheme|run*| with \scheme|run|$^n$, where
+$n$ is some positive integer.  This will return the $n$ answers,
+although miniKanren's interleaving search makes the order in which
+answers are produced difficult to predict.
+
+\item Instead of using the \scheme|run| interface, we could directly
+manipulate the answer stream passed as the second argument to
+\scheme|take| (Chapter~\ref{mkimplchapter}), and examine the answers
+one at a time.  This the ``read-eval-print loop'' approach is used by
+Prolog systems, and is trivial to implement in miniKanren by redefining 
+\scheme|take|.
+
+\item We can use \scheme|onceo| or \scheme|condu| to ensure that goals
+that might succeed an unbounded number of times succeed only once.  Of
+course, these operators are non-declarative, so we reject this
+approach.  Instead, it would be better to use a \scheme|run1|.
+
+\item A more sophisticated approach is to represent infinitely many
+answers as a single answer by using constraints.  For example, one way
+to express that \scheme|x| is a natural number other than $2$ is to
+associate \scheme|x| with $0, 1, 3, \ldots$.  Clearly, there are
+infinitely many such associations, and enumerating them can lead to an
+unbounded number of answers.  Instead, we might represent the same
+information using the single disequality constraint \mbox{\scheme|(=/= 2 x)|}.
+
+Similarly, we might use a clever data representation rather than a
+constraint to represent infinitely many answers as a single term.  For
+example, using the little-endian binary representation of natural
+numbers presented in Chapter~\ref{arithchapter}, the term
+\mbox{\scheme|`(1 . ,x)|} represents any one of the infinitely many
+odd naturals.
+
+Using this technique, programs that previously produced infinitely
+many answers may fail finitely, proving that no more answers exist.
+Unfortunately, it is not always possible to find a constraint or data
+representation to concisely represent infinitely many terms.  For
+example, although the data representation from
+Chapter~\ref{arithchapter} makes it easy to express every odd natural
+as a single term, there is no little-endian binary list that succinctly
+represents every prime number.  Similarly, disequality constraints are
+not sufficient to concisely express that some term does not appear in
+an uninstantiated tree\footnote{However, the freshness
+constraint (\scheme|hash|) described in Chapter~\ref{akchapter} allows
+us to express a similar constraint.}.
+
+\end{enumerate}
+
+
+
+\section*{Example 2}
+
+Consider the divergent \scheme|run1| expression
+
+\wspace
+
+\mbox{\scheme|(run1 (q) (==-no-check `(,q) q))|}
+
+\wspace
+
+\noindent The unification of \scheme|q| with \scheme|`(,q)| results in
+a substitution containing a circularity\footnote{The \scheme|=/=-no-check|
+disequality operator (Chapter~\ref{diseqchapter}) suffers from the
+same problem, since it can add circularities to the constraint
+store.}: \mbox{\scheme|`((q . (,q)))|}.  However, it is not
+unification that diverges, or subsequent calls to \scheme|walk|.
+Rather, the reification of \scheme|q| at the end of the computation
+calls \scheme|walk*| (Chapter~\ref{mkimplchapter}), which
+diverges\footnote{The non-logical operator \scheme|project| also calls
+\scheme|walk*|, and can therefore diverge on circular substitutions.}.
+
+We can avoid this divergence in several different ways:
+
+\begin{enumerate}
+
+\item We can use \scheme|==| rather than \scheme|==-no-check| to
+  perform sound unification with the occurs check.  The goal
+  \mbox{\scheme|(== `(,q) q)|} violates the occurs check and therefore
+  fails; hence, \mbox{\scheme|(run1 (q) (== `(,q) q))|} returns
+  \mbox{\schemeresult|`()|} rather than diverging\footnote{Similarly,
+    we can use \scheme|=/=| rather than \scheme|=/=-no-check| when
+    introducing disequality constraints.}.  Since the occurs check can
+  be expensive, we may wish to restrict \scheme|==| to only those
+  unifications that might introduce a circularity, such as in the
+  application line of a type inferencer; this requires reasoning about
+  the program.  Alternatively, we can always be safe by using only
+  \scheme|==| rather than \scheme|==-no-check|\footnote{As pointed out
+    by~\citet{occurcheck} this approach may be overly conservative.
+    However, since our primary interest is in avoiding divergence, this
+    approach seems reasonable.}.
+
+\item Since the reification of \scheme|q| causes divergence in
+this example, the \scheme|run| expression will terminate if we do not
+reify the variable associated with the circularity.  For example,
+
+\mbox{\scheme|(run1 (q) (exist (x) (==-no-check `(,x) x)))|}
+
+\noindent returns \mbox{\schemeresult|`(_.0)|}.  Although the
+\scheme|run| expression terminates, the resulting substitution is
+still circular: \mbox{\scheme|`((,x . (,x)))|}.
+However, unless we allow infinite terms,
+the unification \mbox{\scheme|(==-no-check `(,x) x)|} is \emph{unsound}.  This
+is a problem for the type inferencers based on the simply typed $\lambda$-calculus, 
+for example, since self-applications such
+as \mbox{\scheme|(f f)|} should not type check (see the inferencer in section~\ref{aktypeinf}).  
+If we do not perform
+the occurs check, and the circular term
+is not reified, the type inference will succeed instead of failing.
+Clearly this is not an acceptable way to avoid divergence.  However,
+it is important to understand why the program above terminates,
+since it is possible to unintentionally write programs that abuse
+unsound unification, unless we use \scheme|==| everywhere.
+
+\item Since reification is the cause of divergence in this
+example, we can just avoid reification entirely and return the raw
+substitution.  The user must determine which associations in the
+substitution are of interest; furthermore, the user must check the
+substitution for circularities introduced by unsound unification.
+There is one more problem with both this approach and the previous
+one: the occurs check can prevent divergence by making the program
+fail early, which may avoid an unbounded number of successes or a
+futile search for a non-existent answer in an infinite search space.
+
+\item Another approach to avoiding divergence is to allow infinite (or
+  \emph{cyclic}) terms, as introduced by Prolog
+  II~\cite{prologtenfigs,DBLP:conf/fgcs/Colmerauer84,Colmerauer82}.
+  Then the unification \mbox{\scheme|(==-no-check `(,q) q)|} is sound,
+  even though it returns a circular substitution.  miniKanren does not
+  currently support infinite terms; however, it would not be difficult
+  to extend the reifier to handle cyclic terms, just as many Scheme
+  implementations can print circular lists.
+
+\end{enumerate}
+
+
+
+
+\section*{Example 3}
+
+Consider the divergent \scheme|run1| expression\footnote{Recall that
+\scheme|alwayso| was defined in Chapter~\ref{mkintrochapter} as
+\mbox{\scheme|(define alwayso (anyo (== #f #f)))|}.  However, for the
+purposes of this chapter we define \scheme|alwayso| as
+
+\begin{schemedisplay}
+(define alwayso
+  (letrec ((alwayso (lambda ()
+                      (conde
+                        ((== #f #f))
+                        ((alwayso))))))
+    (alwayso)))
+\end{schemedisplay}
+
+\noindent This is because tabling (Chapters~\ref{tablingchapter} and
+\ref{tablingimplchapter}) uses reification to determine if a call is a
+variant of a previously tabled call.  Since all procedures have the
+same reified form (\schemeresult|#<procedure>| under Chez Scheme, for
+example), and since \scheme|anyo| takes a goal (a procedure) as its
+argument, tabling \scheme|anyo| can lead to unsound behavior.}
+
+\wspace
+
+\mbox{\scheme|(run1 (q) alwayso fail)|}
+
+\wspace
+
+\noindent where \scheme|fail| is defined as \mbox{\scheme|(== #t #f)|}.
+Recall that the body of a \scheme|run| is an implicit
+conjunction\footnote{\mbox{\scheme|(run1 (q) g1 g2)|} expands into an
+expression containing \mbox{\scheme|(exist () g1 g2)|}.}.  In order for
+the \scheme|run| expression to succeed, both \scheme|alwayso| and
+\scheme|fail| must succeed.  First, \scheme|alwayso| succeeds, then
+\scheme|fail| fails.  We then backtrack into \scheme|alwayso|, which
+succeeds again, followed once again by failure of the \scheme|fail|
+goal.  Since \scheme|alwayso| succeeds an unbounded number of times,
+we repeat the cycle forever, resulting in divergence.
+
+
+We can avoid this divergence in several different ways:
+
+\begin{enumerate}
+
+\item We could simply reorder the goals: \mbox{\scheme|(run1 (q) fail alwayso)|}.
+This expression returns \mbox{\schemeresult|`()|} rather
+than diverging, since \scheme|fail| fails before \scheme|alwayso| is
+even tried.  miniKanren's conjunction operator (\scheme|exist|) is
+commutative, but only if an answer exists.  If no answer exists, then
+reordering goals within an \scheme|exist| may result in divergence
+rather than failure\footnote{We say that conjunction is commutative,
+  \emph{modulo divergence versus failure}.}.
+
+However, reordering goals has its disadvantages.  For many programs,
+no ordering of goals will result in finite failure (see the remaining
+example in this chapter).  Also, by committing to a certain goal
+ordering we are giving up on the declarative nature of relational
+programming: we are specifying \emph{how} the program computes, rather
+than only \emph{what} it computes.  For these reasons, we should
+consider alternative solutions.
+
+\item We may be able to use constraints or clever data structures to
+represent infinitely many terms as a single term (as described in
+Example~1).  If we can use these techniques to make all the conjuncts
+succeed finitely many times, then the program will terminate
+regardless of goal ordering.
+
+\item Another approach to making the conjuncts succeed finitely many
+times is to use tabling, described in Chapter~\ref{tablingchapter}.
+Tabling is a form of memoization---we remember every distinct call to
+the tabled goal, along with the answers produced.  When a tabled goal
+is called, we check whether the goal has previously been called with
+similar arguments---if so, we use the tabled answers.
+
+In addition to potentially making goals more efficient by avoiding
+duplicate work, tabling can improve termination behavior by cutting
+off infinite recursions.  For example, the tabled version of
+\scheme|alwayso| succeeds exactly once rather than an unbounded number
+of times.  Therefore, \mbox{\scheme|(run1 (q) alwayso fail)|}
+returns \mbox{\schemeresult|`()|} rather than diverging when
+\scheme|alwayso| is tabled.
+
+Unfortunately, tabling has a major disadvantage: it does not work if
+one or more of the arguments to a tabled goal changes with each
+recursive call\footnote{As demonstrated by the \scheme|geno| example
+in a later footnote.}.
+
+\item We could perform a \emph{dependency analysis} on the
+conjuncts---if the goals do not share any logic variables, they cannot
+affect each other.  Therefore we can run the goals in parallel,
+passing the original substitution to each goal.  If either goal fails,
+the entire conjunction fails.  If both goals succeed, we take the
+Cartesian product of answers from the goals, and use those new
+associations to extend the original substitution.
+
+miniKanren does not currently support this technique; however,
+miniKanren's interleaving search should make it straightforward to run
+conjuncts in parallel.  A run-time dependency analysis would also be
+easy to implement\footnote{Ciao Prolog~\cite{Hermenegildo95strictand}
+  performs dependency analysis of conjuncts, along with many other
+  analyses, to support efficient parallel logic programming.}.
+
+\item We could address the problem directly by trying to make our
+conjunction operator commutative.  For example, we could run both goal
+orderings in parallel\footnote{We might
+do this by wrapping the goals in a
+fern (Chapter~\ref{fernschapter}).}, \mbox{\scheme|(exist () alwayso fail)|} and
+\mbox{\scheme|(exist () alwayso fail)|}, and see if either ordering
+converges.  If so, we could commit to this goal ordering.
+Unfortunately, this commitment may be premature, since the goal
+ordering we picked might diverge when we ask for a second answer,
+while the other ordering may fail finitely after producing a single
+answer.
+
+We could try \emph{all} possible goal orderings, but this is
+prohibitively expensive for all but the simplest programs.  In
+particular, recursive goals containing conjunctions will result in an
+exponential explosion in the number of orderings.
+
+For these reasons, miniKanren does not currently provide a
+commutative conjunction operator.  However, future versions of
+miniKanren may include an operator that \emph{simulates} full
+commutative conjunction using a combination of tabling, parallel goal
+evaluation, and continuations (see the Future Work chapter).
+
+\end{enumerate}
+
+
+\section*{Example 4}
+
+Consider the \scheme|run1| expression \mbox{\scheme|(run1 (x) (pluso bn2 x bn1))|}.
+If \scheme|pluso| represents the ternary addition relation
+over natural numbers, there is no value for \scheme|q| that satisfies
+\mbox{\scheme|(pluso bn2 x bn1)|} (since $2 + x = 1$ has no solution in
+the naturals).  Ideally, the \scheme|run1| expression will return
+\mbox{\schemeresult|`()|}.  However, a naive implementation of
+\scheme|pluso| that enumerates values for \scheme|x| will diverge,
+since it will keep associating \scheme|x| with larger numbers without
+bound.  Since \scheme|x| grows with each recursive call, tabling
+\scheme|pluso| will not help.
+
+We can avoid this divergence in several different ways:
+
+\begin{enumerate}
+
+\item We can relax the domain of \scheme|x| to include negative
+integers---then the \scheme|run1| expression will return
+\mbox{\schemeresult|`(bnminus1)|}.  However, changing \scheme|run1| to
+\scheme|run2| still results in divergence, since $2 + x = 1$ has only
+a single solution in the integers.
+
+\item We could use a domain-specific constraint system.  For example,
+instead of writing an addition goal, we could use Constraint Logic
+Programming over the integers (also known as ``CLP(Z)'').  If we restrict
+the sizes of our numbers, we could use CLP(FD) (Constraint Logic
+Programming over finite domains).
+
+Alas, no single constraint system can express every interesting
+relation in a non-trivial application.  We could try to create a
+custom constraint system for each application we write, but this may
+be a very difficult task, especially since constraints may interact
+with other language features in complex ways.
+
+miniKanren currently supports four kinds of constraints: unification
+and disunification constraints using \scheme|==| and
+\scheme|=/=| (Chapters~\ref{mkintrochapter} and \ref{diseqchapter});
+$\alpha$-equivalence constraints using nominal
+unification (Chapter~\ref{akchapter}); and freshness constraints using
+\scheme|hash| (Chapter~\ref{akchapter})\footnote{Some non-published
+versions of miniKanren have also supported \scheme|pa/ir| constraints:
+\mbox{\scheme|(pa/ir x)|} expresses that \scheme|x| can never be
+instantiated as a pair.  Uses of \scheme|pa/ir| can typically be
+removed through careful use of tagging, however, so we do not include
+the constraint in this dissertation.}.  Future versions of miniKanren
+will likely support more sophisticated constraints.
+
+\item Another approach is to bound the size of the terms in the
+recursive calls to \scheme|pluso|.  For example, if we represent numbers
+as binary lists, we know that the lengths of the first two arguments
+to \scheme|pluso| (the summands) should never exceed the length of the
+third argument (the sum).  By encoding these bounds on term size in
+our \scheme|pluso| relation, the call \mbox{\scheme|(pluso bn2 x bn1)|}
+will fail finitely.  We use exactly this technique when defining
+\scheme|pluso| in Chapter~\ref{arithchapter}.
+
+Bounding term sizes is a very powerful technique, as is demonstrated
+in the relational arithmetic chapter of this dissertation.  But as
+with the other techniques presented in this chapter, it has its
+limitations.  Establishing relationships between argument sizes may
+require considerable insight into the relation being expressed.  In
+fact, the arithmetic definitions in Chapter~\ref{arithchapter},
+including the bounds on term size, were derived from mathematical
+equations; this code would be almost impossible to write otherwise\footnote{For example, see the definition of \scheme|logo| in section~\ref{arithexplog}.}.
+
+Furthermore, overly-eager bounds on term size can themselves cause
+divergence.  For example, assume that we know arguments \scheme|x| and
+\scheme|y| represent lists, which must be of the same length.  We
+might be tempted to first determine the length of \scheme|x|, then
+determine the length of \scheme|y|, and finally compare the result.
+However, if \scheme|x| is an unassociated logic variable, it has no
+fixed length: we could cdr down \scheme|x| forever, inadvertently
+lengthening \scheme|x| as we go.  Instead, we must
+\emph{simultaneously} compare the lengths of \scheme|x| and
+\scheme|y|.  To make the task more difficult, we want to enforce the
+bounds while we are performing the primary computation of the relation
+(for example, while performing addition in the case of \scheme|pluso|).
+In fact, lazily enforcing complex bounds between multiple arguments is
+likely to be more difficult than writing the underlying relation.
+
+Another problem with bounds on term sizes is that they may not help
+when arguments share logic variables.  For example, consider the
+\scheme|lesslo| relation: \mbox{\scheme|(lesslo x y)|} succeeds if
+\scheme|x| and \scheme|y| are lists, and \scheme|y| is longer than
+\scheme|x|.  We can easily implement \scheme|lesslo| by simultaneously
+cdring down \scheme|x| and \scheme|y|:
+
+\schemedisplayspace
+\begin{schemebox}
+(define lesslo
+  (lambda-e (x y)
+    (`(() (_ . _)))
+    (`((_ . ,xd) (_ . ,yd))
+     (lesslo xd yd))))
+\end{schemebox}
+
+However, consider the call \mbox{\scheme|(lesslo x x)|}.  The
+first \scheme|lambda-e| clause fails, while the second clause results
+in a recursive call where both arguments are the same uninstantiated
+variable.  Therefore \mbox{\scheme|(lesslo x x)|} diverges.
+
+If we were to table \scheme|lesslo|, \mbox{\scheme|(lesslo x x)|}
+would fail instead of diverging.  Unfortunately, sharing of arguments
+in more complicated relations may result in arguments growing with
+each recursive call, which would defeat tabling.
+
+\end{enumerate}
+
+In this section we have examined several divergent miniKanren
+programs, investigated the causes of their
+divergence\footnote{miniKanren's interleaving search avoids some forms
+  of divergence that afflict Prolog, which uses an incomplete search
+  strategy equivalent to depth-first search.  For example, the
+  left-recursive \scheme|swappendo| relation from
+  Chapter~\ref{mkintrochapter} is equivalent to the standard
+  \scheme|appendo| relation in miniKanren.  In Prolog, however,
+  \scheme|swappendo| diverges in many cases that \scheme|appendo|
+  terminates, even when answers exist.  (Although tabling can be used
+  to avoid divergence for left-recursive Prolog goals---indeed, this
+  is one of the main reasons for including tabling in a Prolog
+  implementation.)}, and considered techniques we can use to make
+these programs converge.  As miniKanren programmers, divergence, and
+how to avoid it, should never be far from our minds.  Indeed, every
+extension to the core miniKanren language can be viewed as a new
+technique for avoiding divergence\footnote{For example, the freshness
+  constraints of nominal logic allow us to express that a nom
+  \scheme|a| does not occur free within a variable \scheme|x|.
+  Without such a constraint, we would need to instantiate \scheme|x|
+  to a potentially unbounded number of ground terms to establish that
+  \scheme|a| does not appear in the term.}.
+
+In the next chapter we present a relational arithmetic system that
+uses bounds on term size to establish strong termination guarantees.
+
+
+% [examples that converge in miniKanren, but might diverge in Prolog, other LP systems, or simplified variants of mk]
+
+% \schemedisplayspace
+% \begin{schemedisplay}
+% (define appendo
+%   (lambda (l s out)
+%     (conde
+%       ((exist (a d res)
+%          (== `(,a . ,d) l)
+%          (== `(,a . ,res) out)
+%          (appendo d s res)))
+%       ((== '() l) (== s out)))))
+% \end{schemedisplay}
+
+% \schemedisplayspace
+% \begin{schemedisplay}
+% (define appendo
+%   (lambda (l s out)
+%     (conde
+%       ((== '() l) (== s out))
+%       ((exist (a d res)
+%          (== `(,a . ,d) l)
+%          (== `(,a . ,res) out)
+%          (appendo d s res))))))
+% \end{schemedisplay}
+
+
+
+% \schemedisplayspace
+% \begin{schemedisplay}
+% (define geno
+%   (lambda (n x)
+%     (conde
+%       ((== n x))
+%       ((geno (add1 n) x)))))
+
+% (run1 (q)
+%   (exist (x y)
+%     (geno 0 x)
+%     (geno 0 y)
+%     (== 1 x)))
+% \end{schemedisplay}

@@ -1,0 +1,1141 @@
+\chapter{Implementation IV:  \alphakanren}\label{akimplchapter}
+
+\enlargethispage{1em}
+
+In this chapter we present two implementations of \alphakanrensp based
+on two implementations of nominal unification: one using idempotent
+substitutions, and one using triangular substitutions.  The idempotent
+implementation mirrors the mathematical description of nominal
+unification given by \citet{Urban-Pitts-Gabbay/04}, while the
+triangular implementation is more efficient.
+
+This chapter is organized as follows. In section~\ref{nominalunif} we
+present our implementation of nominal unification using idempotent
+substitutions. In section~\ref{akgoalconstructorimplsection} we
+implement \alphakanren's goal constructors, using the unifier of
+section~\ref{nominalunif}, and in section~\ref{akreifysection} we
+implement reification.  In section~\ref{triangularsection} we present
+a second implementation of nominal unification, using triangular
+substitutions.  
+
+% In section~\ref{akperfsection} we compare the performance of the two
+% \alphakanrensp implementations, using the relational theorem prover of
+% \ref{alphatapchapter}.
+
+\section{Nominal Unification with Idempotent Substitutions}\label{nominalunif}
+
+Nominal unification occurs in two distinct phases: the first processes
+equations, while the second processes constraints.  The first phase
+takes a set of equations \scheme{eqns} and transforms it into a
+substitution \scheme{sigma} and a set of unresolved constraints
+\scheme{delta}.  The second phase combines the unresolved constraints
+with the previously resolved constraints, which have both been brought
+up to date using \scheme{apply-subst}.  Then, the unifier transforms
+these combined constraints into a set of resolved constraints
+$\nabla$, and returns the list \mbox{\scheme|`(,sigma ,nabla)|} as a
+package.
+
+Nominal unification uses several data structures.  A set of
+equations \scheme{eqns} is represented as a list of pairs of terms.
+A substitution \scheme{sigma} is represented as an association list of variables to terms.
+A set of constraints \scheme{delta} is represented as a list of pairs associating
+noms to terms; a \scheme{nabla} is a \scheme{delta} in which all terms are unbound variables.
+In a substitution, a variable may have at most one association.  
+In a \scheme{delta} (and therefore in a \scheme{nabla}) a nom may have multiple associations.
+
+We represent a variable as a suspension containing an empty
+list of swaps.  Several functions reconstruct suspensions that represent
+variables.  However, our implementation of nominal unification assumes
+that variables can be compared using \scheme{eq?}.
+
+In order to ensure that a variable is always \scheme{eq?} to itself,
+regardless of how many times it is reconstructed, we use a
+\scheme{letrec} trick: a suspension representing a variable
+contains a procedure of zero arguments (a \emph{thunk})
+that, when invoked, returns the suspension,
+thus maintaining the desired \scheme{eq?}-ness property.
+(In the text we conflate variables with their associated thunks.)
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define ak-var
+  (lambda (ignore)
+    (letrec ((s (list 'susp-tag '() (lambda () s))))
+      s)))
+\end{schemedisplay}
+
+\scheme{unify} attempts to solve a set of equations \scheme{eqns}
+in the context of a package \mbox{\scheme|`(,sigma ,nabla)|}.
+\scheme{unify} applies \scheme{sigma} to \scheme{eqns}, 
+and then calls \scheme{apply-sigma-rules} on the resulting 
+set of equations.
+\scheme{apply-sigma-rules} either successfully completes the first
+phase of nominal unification by returning a new \scheme{sigma} and
+\scheme{delta}, or invokes the failure continuation \scheme{fk},
+a jump-out continuation similar to Lisp's
+\scheme{catch} \cite{Steele:1990:CLL}.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define unify
+  (lambda (eqns sigma nabla fk)
+    (let ((eqns (apply-subst sigma eqns)))
+      (mv-let ((sigma^ delta) (apply-sigma-rules eqns fk))
+        (unifyhash delta (compose-subst sigma sigma^) nabla fk)))))
+\end{schemedisplay}
+\noindent \scheme{mv-let}, defined in Appendix~\ref{pmatch}, deconstructs a list of values.
+
+In the second phase of nominal unification, \scheme{unifyhash} calls \scheme{apply-subst}
+to bring \scheme{nabla} and \scheme{delta} up to date, then
+passes their union to \scheme{apply-nabla-rules}.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define unifyhash
+  (lambda (delta sigma nabla fk)
+    (let ((delta (apply-subst sigma delta))
+          (nabla (apply-subst sigma nabla)))
+      (let ((delta (delta-union nabla delta)))
+        (list sigma (apply-nabla-rules delta fk))))))
+\end{schemedisplay}
+
+\scheme{apply-sigma-rules} is a recursive function whose only task is
+to combine results returned by \scheme{sigma-rules}.
+\scheme{sigma-rules} takes two arguments: a single equation and the
+rest of the equations.  If \scheme{sigma-rules} fails, then
+\scheme{apply-sigma-rules} invokes \scheme{fk}, and the result of
+\scheme{unify} is \scheme{#f}.  Each successful call to
+\scheme{sigma-rules} returns a new set of equations \scheme{eqns}, a
+new \scheme{sigma}, and a set of (unresolved) constraints
+\scheme{delta}.  Successive calls to \scheme{sigma-rules} resolve the
+equations in \scheme{eqns} until there are no equations left.
+
+\newpage
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define apply-sigma-rules
+  (lambda (eqns fk)
+    (cond
+      ((null? eqns) `(,empty-sigma ,empty-delta))
+      (else
+       (let ((eqn (car eqns)) (eqns (cdr eqns)))
+         (mv-let ((eqns sigma delta) (or (sigma-rules eqn eqns) (fk)))
+           (mv-let ((sigma^ delta^) (apply-sigma-rules eqns fk))
+             (list (compose-subst sigma sigma^) (delta-union delta^ delta)))))))))
+\end{schemedisplay}
+
+\scheme{apply-nabla-rules} is similar to \scheme{apply-sigma-rules},
+but takes constraints instead of equations, and combines the results
+returned by \scheme{nabla-rules}.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define apply-nabla-rules
+  (lambda (delta fk)
+    (cond
+      ((null? delta) empty-nabla)
+      (else
+       (let ((c (car delta)) (delta (cdr delta)))
+         (mv-let ((delta nabla) (or (nabla-rules c delta) (fk)))
+           (delta-union nabla (apply-nabla-rules delta fk))))))))
+\end{schemedisplay}
+
+\noindent \scheme{empty-sigma}, \scheme{empty-delta}, and
+\scheme{empty-nabla} are defined in section~\ref{akgoalconstructorimplsection}.
+
+In both \scheme{sigma-rules} and \scheme{nabla-rules}
+we use \scheme{untagged?} 
+to distinguish untagged pairs from specially tagged pairs that
+represent binders, noms, and suspensions.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define untagged?
+  (lambda (x)
+    (not (memv x '(tie-tag nom-tag susp-tag)))))
+\end{schemedisplay}
+
+Here are the transformation rules of the nominal unification
+algorithm, derived from the rules in \citet{Urban-Pitts-Gabbay/04}.
+(\scheme{sigma-rules} relies on \scheme{pmatch}, which is defined in
+Appendix~\ref{pmatch}.)
+
+\newpage
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define sigma-rules  
+  (lambda (eqn eqns)
+    (pmatch eqn
+      (`(,c . ,c^)
+       (guard (not (pair? c)) (equal? c c^))
+       `(,eqns ,empty-sigma ,empty-delta))
+      (`((tie-tag ,a ,t) . (tie-tag ,a^ ,t^))
+       (guard (eq? a a^))
+       `(((,t . ,t^) . ,eqns) ,empty-sigma ,empty-delta))
+      (`((tie-tag ,a ,t) . (tie-tag ,a^ ,t^))
+       (guard (not (eq? a a^)))
+       (let ((u^ (apply-pi `((,a ,a^)) t^)))
+         `(((,t . ,u^) . ,eqns) ,empty-sigma ((,a . ,t^)))))
+      (`((nom-tag __) . (nom-tag __))
+       (guard (eq? (car eqn) (cdr eqn)))
+       `(,eqns ,empty-sigma ,empty-delta))
+      (`((susp-tag ,pi ,x) . (susp-tag ,pi^ ,x^))
+       (guard (eq? (x) (x^)))
+       (let ((delta (map (lambda (a) (cons a (x))) 
+                         (disagreement-set pi pi^))))
+         `(,eqns ,empty-sigma ,delta)))
+      (`((susp-tag ,pi ,x) . ,t)
+       (guard (not (occurs-check (x) t)))
+       (let ((x (x)) (t (apply-pi (reverse pi) t)))
+         (let ((sigma `((,x . ,t))))
+           (list (apply-subst sigma eqns) sigma empty-delta))))
+      (`(,t . (susp-tag ,pi ,x))
+       (guard (not (occurs-check (x) t)))
+       (let ((x (x)) (t (apply-pi (reverse pi) t)))
+         (let ((sigma `((,x . ,t))))
+           (list (apply-subst sigma eqns) sigma empty-delta))))
+      (`((,t1 . ,t2) . (,t1^ . ,t2^))
+       (guard (untagged? t1) (untagged? t1^))
+       `(((,t1 . ,t1^) (,t2 . ,t2^) . ,eqns) ,empty-sigma ,empty-delta))
+      (else #f))))
+\end{schemedisplay}
+
+Clauses two and three in \scheme{sigma-rules}
+implement $\alpha$-equivalence of binders, as defined
+in section~\ref{akintro} of Chapter~\ref{akchapter}.
+Clause five unifies two suspensions that have the same variable;
+in this case, \scheme{sigma-rules} creates as many new freshness constraints
+as there are noms in the \emph{disagreement set} (defined below) of the
+suspensions' swaps.
+Clauses six and seven are similar: each clause unifies a
+suspension containing a variable \scheme{x} and a list of swaps \scheme{pi}
+with a term \scheme{t}.
+\scheme{sigma-rules} creates a substitution associating
+\scheme{x} with the result of applying the swaps in \scheme{pi} to \scheme{t} in
+\emph{reverse order}, with the newest swap in \scheme{pi} applied first.
+This substitution is applied to the context \scheme{eqns}.
+
+\newpage
+
+\scheme{apply-pi}, below, applies a list of swaps \scheme{pi} to a term \scheme{v}.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define apply-pi
+  (lambda (pi v)
+    (pmatch v
+      (`,c (guard (not (pair? c))) c)
+      (`(tie-tag ,a ,t)
+       (let ((a (apply-pi pi a))
+             (t (apply-pi pi t)))
+         `(tie-tag ,a ,t)))
+      (`(nom-tag __)
+       (let loop ((v v) (pi pi))
+         (if (null? pi)
+             v
+             (apply-swap (car pi) (loop v (cdr pi))))))
+      (`(susp-tag ,pi^ ,x)
+       (let ((pi (append pi pi^)))
+         (if (null? pi)
+             (x)
+             `(susp-tag ,pi ,x))))
+      (`(,a . ,d) (cons (apply-pi pi a) (apply-pi pi d))))))
+\end{schemedisplay}
+
+\noindent If \scheme{v} is a nom, then  \scheme{pi}'s swaps are applied,
+with the oldest swap applied first.  If \scheme{v} is a suspension
+with a list of swaps \scheme{pi^} and variable \scheme{x}, then
+the swaps in \scheme{pi} are added to the swaps in \scheme{pi^}.
+If this list is empty, then \scheme{x}'s suspension is
+returned; otherwise, a new suspension is created with those swaps.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define apply-swap
+  (lambda (swap a)
+    (pmatch swap
+      (`(,a1 ,a2)
+       (cond
+         ((eq? a a2) a1)
+         ((eq? a a1) a2)
+         (else a))))))
+\end{schemedisplay}
+
+The \scheme{nabla-rules} are much simpler than the \scheme{sigma-rules}.  
+In the second clause, the nom \scheme{a^} in the binding position of the binder 
+is the same as \scheme{a}, so \scheme{a} can never appear free in \scheme{t}.
+In the fifth clause, the list of swaps \scheme{pi} in the suspension are
+applied, in reverse order, to the nom \scheme{a}, yielding another nom.
+\scheme{nabla-rules} then adds a new constraint associating this nom with
+the suspension's variable.
+
+\newpage
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define nabla-rules
+  (lambda (d delta)
+    (pmatch d
+      (`(,a . ,c)
+       (guard (not (pair? c)))
+       `(,delta ,empty-nabla))
+      (`(,a . (tie-tag ,a^ ,t))
+       (guard (eq? a^ a))
+       `(,delta ,empty-nabla))
+      (`(,a . (tie-tag ,a^ ,t))
+       (guard (not (eq? a^ a)))
+       `(((,a . ,t) . ,delta) ,empty-nabla))
+      (`(,a . (nom-tag __))
+       (guard (not (eq? a (cdr d))))
+       `(,delta ,empty-nabla))
+      (`(,a . (susp-tag ,pi ,x))
+       (let ((a (apply-pi (reverse pi) a)) (x (x)))
+         `(,delta ((,a . ,x)))))
+      (`(,a . (,t1 . ,t2))
+       (guard (untagged? t1))
+       `(((,a . ,t1) (,a . ,t2) . ,delta) ,empty-nabla))
+      (else #f))))
+\end{schemedisplay}
+
+Finding the disagreement set of two lists of swaps
+\scheme{pi} and \scheme{pi^} requires
+forming a set of all the noms in those lists, then applying both \scheme{pi}
+and \scheme{pi^} to each nom \scheme{a} in this set.
+If \mbox{\scheme|(apply-pi pi a)|} and \mbox{\scheme|(apply-pi pi^ a)|}
+produce different noms, then \scheme{a} is in the \emph{dis}agreement set.
+(\scheme{filter} and \scheme{remove-duplicates} are defined 
+in Appendix~\ref{helpers}.)
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define disagreement-set
+  (lambda (pi pi^)
+    (filter
+      (lambda (a) (not (eq? (apply-pi pi a) (apply-pi pi^ a))))
+      (remove-duplicates
+        (append (apply append pi) (apply append pi^))))))
+\end{schemedisplay}
+
+The \scheme{occurs-check} is what one might expect.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define occurs-check
+  (lambda (x v)
+    (pmatch v
+      (`,c (guard (not (pair? c))) #f)
+      (`(tie-tag __ ,t) (occurs-check x t))      
+      (`(nom-tag __) #f)
+      (`(susp-tag __ x^) (eq? (x^) x))
+      (`(,x^ . ,y^) (or (occurs-check x x^) (occurs-check x y^)))
+      (else #f))))
+\end{schemedisplay}
+
+\subsection{Idempotent Substitutions}\label{applysubst}
+
+\scheme{compose-subst}'s definition is taken from \citet{lloyd:lp}.  It
+takes two substitutions \scheme{sigma} and \scheme{tau}, and constructs a new
+substitution \scheme{sigma^} in which each association \mbox{\scheme|`(,x . ,v)|}
+in \scheme{sigma} is replaced by \mbox{\scheme|`(,x . v^)|}, where \scheme{v^} is the result
+of applying \scheme{tau} to \scheme{v}.
+Any association in \scheme{tau} whose
+variable has an association in \scheme{sigma^} is then filtered from \scheme{tau}.
+Also, any association of the form \mbox{\scheme|`(,x . ,x)|} is filtered from \scheme{sigma^}.
+These filtered substitutions are then appended.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define compose-subst
+  (lambda (sigma tau)
+    (let ((sigma^ (map
+                    (lambda (a) (cons (car a) (apply-subst tau (cdr a))))
+                    sigma)))
+      (append
+        (filter (lambda (a) (not (assq (car a) sigma^))) tau)
+        (filter (lambda (a) (not (eq? (car a) (cdr a)))) sigma^)))))
+\end{schemedisplay}
+
+Next we define \scheme{apply-subst}.  In the suspension case,
+\scheme{apply-subst} applies the list of swaps \scheme{pi} to a variable,
+or to its binding.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define apply-subst
+  (lambda (sigma v)
+    (pmatch v
+      (`,c (guard (not (pair? c))) c)
+      (`(tie-tag ,a ,t)
+       (let ((t (apply-subst sigma t)))
+         `(tie-tag ,a ,t)))      
+      (`(nom-tag __) v)
+      (`(susp-tag ,pi ,x) (apply-pi pi (get (x) sigma)))
+      (`(,x . ,y) (cons (apply-subst sigma x) (apply-subst sigma y))))))
+\end{schemedisplay}
+
+\noindent \scheme{get}, which is defined in Appendix~\ref{helpers},
+finds the binding of a variable in a substitution or returns the
+variable if no binding exists.
+
+\subsection{{\it \deltaunionsymbol}}
+
+Finally we define \scheme{delta-union}, which forms the union of
+two \scheme{delta}'s.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define delta-union
+  (lambda (delta delta^)
+    (pmatch delta
+      (`() delta^)
+      (`(,d . ,delta)
+       (if (term-member? d delta^)
+           (delta-union delta delta^)
+           (cons d (delta-union delta delta^)))))))
+\end{schemedisplay}
+\newpage
+\begin{schemedisplay}
+(define term-member?
+  (lambda (v v*)
+    (pmatch v*
+      (`() #f)
+      (`(,v^ . ,v*) 
+       (or (term-equal? v^ v) (term-member? v v*))))))
+
+(define term-equal?
+  (lambda (u v)
+    (pmatch `(,u ,v)
+      (`(,c ,c^) (guard (not (pair? c)) (not (pair? c^)))
+       (equal? c c^))
+      (`((tie-tag ,a ,t) (tie-tag ,a^ ,t^))
+       (and (eq? a a^) (term-equal? t t^)))
+      (`((nom-tag __) (nom-tag __)) (eq? u v))
+      (`((susp-tag ,pi ,x) (susp-tag ,pi^ ,x^))
+       (and (eq? (x) (x^)) (null? (disagreement-set pi pi^))))
+      (`((,x . ,y) (,x^ . ,y^))
+       (and (term-equal? x x^) (term-equal? y y^)))
+      (else #f))))
+\end{schemedisplay}
+
+Recall that \scheme{delta} denotes a set of unresolved
+constraints, where a constraint is a pair of a nom \scheme{a} and a
+term \scheme{t}.  \scheme{delta-union} uses \scheme{term-member?},
+which uses \scheme{term-equal?} when comparing two constraints.  The
+definition of \scheme{term-equal?} is straightforward except when
+comparing two suspensions, in which case their variables must be the
+same, and the disagreement set of their lists of swaps must be empty.
+
+%\section{Goals and Packages}\label{akpackagerepsection}
+
+% Our \alphakanren\ implementation comprises three kinds of operators: the interface
+% operator \scheme{run}; goal constructors \scheme{==}, \scheme{hash},
+% \scheme{conde}, \scheme{exist}, and \scheme{fresh}, which take a package
+% \emph{implicitly}; and functions such as \scheme{reify},
+% and the already defined \scheme{unify} and \scheme{unify#}, which take a
+% package \emph{explicitly}.  
+
+
+% (As in Chapter~\ref{mkimplchapter}, we notate \scheme{lambda} as
+% \scheme{lambdag@} when creating such a function~\scheme{g}.)
+
+
+% \schemedisplayspace
+% \begin{schemedisplay}
+% (define-syntax lambdag@ 
+%   (syntax-rules () ((__ (p) e) (lambda (p) e))))
+% \end{schemedisplay}
+
+% Because a sequence of packages may be infinite, we represent it
+% not as a list but as a \mbox{\scheme|p-inf|}, a special kind of
+% stream that can contain either zero, one, or more packages
+% \cite{hinze2000,Wadler85}.
+% We use \mbox{\scheme|#f|} to represent the empty stream of
+% packages. If \scheme{p} is a package, then \scheme{p} itself
+% represents the stream containing
+% just~\scheme{p}.  To represent a stream containing multiple
+% packages, we use \mbox{\scheme|(choice p f)|}, where \scheme{p}
+% is the first package in the stream, and where \scheme{f} is a
+% thunk that, when invoked, produces the remainder of the stream. 
+% (For clarity, we notate \scheme{lambda}
+% as \scheme{lambdaf@} when creating such a function~\scheme{f}.)
+% To represent an incomplete stream, we use \mbox{\scheme|(inc e)|}, 
+% where \scheme{e} is an \emph{expression} that evaluates to
+% a \mbox{\scheme|p-inf|}---thus \scheme{inc} creates an \scheme{f}.
+
+% \schemedisplayspace
+% \begin{schemedisplay}
+% (define-syntax lambdaf@ 
+%   (syntax-rules () ((__ () e) (lambda () e))))
+
+% (define-syntax choice
+%   (syntax-rules () ((__ a f) (cons a f))))
+
+% (define-syntax inc 
+%   (syntax-rules () ((__ e) (lambdaf@ () e))))
+% \end{schemedisplay}
+
+% \noindent A singleton stream \scheme{p} is the same as
+% \begin{schemebox}(choice p (lambdaf@ () #f))\end{schemebox}.  However, 
+% for the goals that return only a single package, using this special
+% representation of a singleton stream
+% avoids the cost of unnecessarily building and taking apart pairs, 
+% and creating and invoking thunks.
+
+% To ensure that the values produced by these four kinds of
+% \mbox{\scheme|p-inf|}'s can be distinguished, we assume that a package
+% is never \schemeresult{#f}, a function, or a pair whose \scheme{cdr}
+% is a function.  To discriminate among these four cases, we define
+% \mbox{\scheme|case-inf|}.
+
+% \newpage
+% \schemedisplayspace
+% \begin{schemedisplay}
+% (define-syntax case-inf
+%   (syntax-rules ()
+%     ((_ a-inf (() e0) ((f^) e1) ((a^) e2) ((a f) e3))
+%      (pmatch a-inf
+%        (#f e0)
+%        (`,f^ (guard (procedure? f^)) e1)
+%        (`,a^ (guard (not 
+%                      (and (pair? a^) 
+%                           (procedure? (cdr a^)))))
+%             e2)
+%        (`(,a . ,f) e3)))))
+% \end{schemedisplay}
+
+% The interface operator \scheme{run} 
+% uses \scheme{take} (defined below) to convert an \scheme{f} to an
+% \emph{even} stream \cite{Lazysml98}.  
+% The definition of \scheme{run} places an artificial goal at the tail
+% of \mbox{\scheme|g0 g ...|}; this artificial goal reifies the variable
+%  \scheme{x} using the final package \scheme{p}
+% produced by running the goals \mbox{\scheme|g0 g ...|}
+% in the empty package \mbox{\scheme|`(,empty-sigma ,empty-nabla)|}.
+
+% \schemedisplayspace
+% \begin{schemedisplay}
+% (define-syntax run
+%   (syntax-rules ()
+%     ((_ n (x) g0 g ...)
+%      (take n (lambdaf@ ()
+%                ((exist (x) g0 g ... 
+%                   (lambdag@ (p) (cons (reify x p) '())))
+%                 `(,empty-sigma ,empty-nabla)))))))
+% \end{schemedisplay}
+
+% \noindent Wrapping the reified value 
+% in a list allows \scheme{#f} to appear as a value.
+
+% If the first argument to \scheme{take} is \scheme{#f}, 
+% then \scheme{take} returns the entire stream of reified values as a list,
+% thereby providing the behavior of \scheme{run*}.
+% The \scheme{and} expressions within \scheme{take} 
+% detect this \scheme{#f} case.
+
+% \newpage
+% \schemedisplayspace
+% \begin{schemedisplay}
+% (define take
+%   (lambda (n f)
+%     (if (and n (zero? n)) 
+%       '()
+%       (case-inf (f)
+%         (() '())
+%         ((f) (take n f))
+%         ((a) a)
+%         ((a f) (cons (car a)
+%                  (take (and n (- n 1)) f)))))))
+% \end{schemedisplay}
+
+% \scheme{run*} is trivially defined in terms of \scheme{run}.
+
+% \schemedisplayspace
+% \begin{schemedisplay}
+% (define-syntax run*
+%   (syntax-rules ()
+%     ((_ (x) g0 g ...)
+%      (run #f (x) g0 g ...))))
+% \end{schemedisplay}
+
+\section{Goal Constructors}\label{akgoalconstructorimplsection}
+
+In the core miniKanren implementation of Chapter~\ref{mkimplchapter},
+a goal is a function that maps a substitution \scheme{s} to an ordered
+sequence of zero or more substitutions (see
+section~\ref{goalconstructors}).  In \alphakanren, a goal \scheme{g}
+is a function that maps a package \scheme{p} to an ordered
+sequence \scheme|p-inf| of zero or more packages.  
+
+We represent the empty substitution, 
+along with the empty unresolved and resolved
+constraint sets, as the empty list.
+
+\wspace
+
+\noindent \scheme|(define empty-sigma '()) $~~~~~$ (define empty-delta '()) $~~~~~$ (define empty-nabla '())|
+
+\wspace
+
+\scheme{==} and \scheme{hash} construct goals that return either a
+singleton stream or an empty stream.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define-syntax ==
+  (syntax-rules ()
+    ((_ u v)
+     (unifier unify `((,u . ,v))))))
+\end{schemedisplay}
+\newpage
+\begin{schemedisplay}
+(define-syntax hash
+  (syntax-rules ()
+    ((_ a t)
+     (unifier unifyhash `((,a . ,t))))))
+
+(define unifier
+  (lambda (fn set)
+    (lambdag@ (p)
+      (mv-let ((sigma nabla) p)
+        (call/cc (lambda (fk) (fn set sigma nabla (lambda () (fk #f)))))))))
+\end{schemedisplay}
+
+% To take the conjunction of goals, we define \scheme{exist}, a goal
+% constructor that first lexically binds variables built by
+% \scheme{var}, and then combines successive goals using \scheme{bind*}.
+The goal constructor \scheme{fresh} is identical to \scheme{exist},
+except that it lexically binds noms instead of variables.
+
+% (define-syntax exist
+%   (syntax-rules ()
+%     ((_ (x ...) g0 g ...)
+%      (lambdag@ (p)
+%        (inc
+%          (let ((x (var)) ...)
+%            (bind* (g0 p) g ...)))))))
+
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define-syntax fresh
+  (syntax-rules ()
+    ((_ (a ...) g0 g ...)
+     (lambdag@ (p)
+       (inc
+         (let ((a (nom 'a)) ...)
+           (bind* (g0 p) g ...)))))))
+
+(define nom
+  (lambda (a)
+    (list 'nom-tag (symbol->string a))))
+\end{schemedisplay}
+
+% \scheme{bind*} is short-circuiting: since the empty stream is
+% represented by \mbox{\scheme|#f|}, any failed goal causes
+% \scheme{bind*} to immediately return \scheme{#f}.  \scheme{bind*}
+% relies on \scheme{bind} \cite{moggi91notions,Wadler92}, which applies the
+% goal \scheme{g} to each element in the stream \scheme{p-inf}.  The
+% resulting \scheme{p-inf}'s are then merged using \scheme{mplus}, which
+% combines a \scheme{p-inf} and an \scheme{f} to yield a single
+% \scheme{p-inf}.  (\scheme{bind} is similar to Lisp's \scheme{mapcan}
+% but uses \scheme{mplus} (not \scheme{append}) to interleave the values
+% of streams.)
+
+% \schemedisplayspace
+% \begin{schemedisplay}
+% (define-syntax bind*
+%   (syntax-rules ()
+%     ((_ e) e)
+%     ((_ e g0 g ...)
+%      (let ((a-inf e))
+%        (and a-inf (bind* (bind a-inf g0) g ...))))))
+
+% (define bind
+%   (lambda (a-inf g)
+%     (case-inf a-inf
+%       (() #f)
+%       ((f) (inc (bind (f) g)))
+%       ((a) (g a))
+%       ((a f) (mplus (g a) (lambdaf@ () (bind (f) g)))))))
+
+% (define mplus
+%   (lambda (a-inf f)
+%     (case-inf a-inf
+%       (() (f))
+%       ((f^) (inc (mplus (f) f^)))
+%       ((a) (choice a f))
+%       ((a f^) (choice a (lambdaf@ () (mplus (f) f^)))))))
+% \end{schemedisplay}
+
+% To take the disjunction of goals we define \scheme{conde}, a goal
+% constructor that combines successive \scheme{conde}-lines using
+% \scheme{mplus*}, which in turn relies on \scheme{mplus}.  
+% We use the same implicit package \scheme{p} for each \scheme{conde}-line.
+% To avoid unwanted divergence, we treat the
+% \scheme{conde}-lines as a single \scheme{inc} stream.  
+
+% \schemedisplayspace
+% \begin{schemedisplay}
+% (define-syntax conde
+%   (syntax-rules ()
+%     ((_ (g0 g ...) (g1 g^ ...) ...)
+%      (lambdag@ (p)
+%        (inc (mplus* (bind* (g0 p) g ...)
+%                     (bind* (g1 p) g^ ...)
+%                     ...))))))
+% \end{schemedisplay}
+
+% \begin{schemedisplay}
+% (define-syntax mplus*
+%   (syntax-rules ()
+%     ((_ e) e)
+%     ((_ e0 e ...) (mplus e0 (lambdaf@ () (mplus* e ...))))))
+% \end{schemedisplay}
+
+\section{Reification}\label{akreifysection}
+
+\enlargethispage{2em}
+
+As described in section~\ref{mkreification}, \emph{reification} is the
+process of turning a miniKanren (or \alphakanren) value into a Scheme
+value.
+
+\alphakanren's version of \scheme{reify} takes a variable \scheme{x}
+and a package \scheme{p}, and returns the value associated with
+\scheme{x} in \scheme{p} (along with any relevant constraints), first
+replacing all variables and noms with symbols representing those
+entities.  A constraint \scheme{`(,a . ,y)} is \emph{relevant} if both
+\scheme{a} and \scheme{y} appear in the value associated with
+\scheme{x}.
+
+The first \scheme{cond} clause in the definition of \scheme{reify}
+below returns only the reified value associated with \scheme{x}, when
+there are no relevant constraints.  The \scheme{else} clause returns
+both the reified value of \scheme{x} and the reified set of relevant
+constraints; we have arbitrarily chosen the colon `:' to separate the
+reified value from the list of reified constraints.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define reify
+  (lambda (x p)
+    (mv-let ((sigma nabla) p)
+      (let* ((v (get x sigma)) (s (reify-s v)) (v (walk* v s)))
+        (let ((nabla (filter (lambda (a) (and (symbol? (car a)) (symbol? (cdr a))))
+                       (walk* nabla s))))
+          (cond
+            ((null? nabla) v)
+            (else `(,v : ,nabla))))))))
+\end{schemedisplay}
+
+\scheme{reify-s} is the heart of the reifier.  \scheme{reify-s} takes
+an arbitrary value \scheme{v}, and returns a substitution that maps
+every distinct nom and variable in \scheme{v} to a unique symbol.  The
+trick to maintaining left-to-right ordering of the subscripts on these
+symbols is to process \scheme{v} from left to right, as can be seen in
+the last \scheme{pmatch} clause.  When \scheme{reify-s} encounters a
+nom or variable, it determines if we already have a mapping for that
+entity.  If not, \scheme{reify-s} extends the substitution with an
+association between the nom or variable and a new, appropriately
+subscripted symbol.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define reify-s
+  (letrec
+    ((r-s (lambda (v s)
+            (pmatch v
+              (`,c (guard (not (pair? c))) s)
+              (`(tie-tag ,a ,t) (r-s t (r-s a s)))
+              (`(nom-tag ,n)
+               (cond
+                 ((assq v s) s)
+                 ((assp nom? s)
+                  => (lambda (p)
+                       (let ((n (reify-n (cdr p))))
+                         (cons `(,v . ,n) s))))
+                 (else (cons `(,v . a.0) s))))
+              (`(susp-tag () __)
+               (cond
+                 ((assq v s) s)
+                 ((assp ak-var? s)
+                  => (lambda (p)
+                       (let ((n (reify-n (cdr p))))
+                         (cons `(,v . ,n) s))))
+                 (else (cons `(,v . __.0) s))))
+              (`(susp-tag ,pi ,x)
+               (r-s (x) (r-s pi s)))
+              (`(,a . ,d) (r-s d (r-s a s)))))))
+      (lambda (v)
+        (r-s v '()))))
+\end{schemedisplay}
+
+\scheme{walk*} applies a special substitution \scheme{s}, which
+maps noms and variables to symbols, to an arbitrary value \scheme{v}.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define walk*
+  (lambda (v s)
+    (pmatch v
+      (,c (guard (not (pair? c))) c)
+      (`(tie-tag ,a ,t) (list 'tie-tag (get a s) (walk* t s)))
+      (`(nom-tag __) (get v s))
+      (`(susp-tag () __) (get v s))
+      (`(susp-tag ,pi ,x) (list 'susp-tag (walk* pi s) (get (x) s)))
+      (`(,a . ,d) (cons (walk* a s) (walk* d s))))))
+\end{schemedisplay}
+
+\begin{schemedisplay}
+(define ak-var?
+  (lambda (x)
+    (pmatch x
+      (`(susp-tag () __) #t)
+      (else #f))))
+
+(define nom?
+  (lambda (x)
+    (pmatch x
+      (`(nom-tag __) #t)
+      (else #f))))
+\end{schemedisplay}
+
+\scheme{reify-n} returns a symbol representing an individual
+variable or nom; this symbol always ends with a period 
+followed by a non-negative integer. 
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define reify-n
+  (lambda (a)
+    (let ((str* (string->list (symbol->string a))))
+      (let ((c* (memv #\. str*)))
+        (let ((rn (string->number (list->string (cdr c*)))))
+          (let ((n-str (number->string (+ rn 1))))
+            (string->symbol 
+              (string-append
+                (string (car str*)) "." n-str))))))))
+\end{schemedisplay}
+
+
+% \subsection{Impure Control Operators:}
+
+% For completeness, we define three additional \alphakanren\ goal constructors 
+% not used in this paper: \scheme{project}, which can be used to
+% access the values of variables, and 
+% \scheme{conda} and \scheme{condu}, which can be used to prune 
+% the search tree of a program.
+% The examples from chapter 10 of \emph{The Reasoned Schemer}~\cite{reasoned} 
+% demonstrate how \scheme{conda} and
+% \scheme{condu} can be useful, and the pitfalls that await the
+% unsuspecting reader.
+% %\newpage
+
+% \schemedisplayspace
+% \begin{schemedisplay}
+% (define-syntax project 
+%   (syntax-rules ()                       
+%     ((_ (x ...) g0 g ...)  
+%      (lambdag@ (p)
+%        (mv-let ((sigma nabla) p)
+%          (let ((x (get x sigma)) ...)
+%            (bind* (g0 p) g ...)))))))
+% \end{schemedisplay}
+
+% \begin{schemedisplay}
+% (define-syntax conda
+%   (syntax-rules ()
+%     ((_ (g0 g ...) (g1 g^ ...) ...)
+%      (lambdag@ (p)
+%        (inc (ifa ((g0 p) g ...) ((g1 p) g^ ...) ...))))))
+
+% (define-syntax ifa
+%   (syntax-rules ()
+%     ((_) #f)
+%     ((_ (e g ...) b ...)
+%      (let loop ((a-inf e))
+%        (case-inf a-inf
+%          (() (ifa b ...))
+%          ((f) (inc (loop (f))))
+%          ((a) (bind* a-inf g ...))
+%          ((a f) (bind* a-inf g ...)))))))
+% \end{schemedisplay}
+
+% \begin{schemedisplay}
+% (define-syntax condu
+%   (syntax-rules ()
+%     ((_ (g0 g ...) (g1 g^ ...) ...)
+%      (lambdag@ (p)
+%        (inc (ifu ((g0 p) g ...) ((g1 p) g^ ...) ...))))))
+% \end{schemedisplay}
+% \newpage
+% \begin{schemedisplay}
+% (define-syntax ifu
+%   (syntax-rules ()
+%     ((_) #f)
+%     ((_ (e g ...) b ...)
+%      (let loop ((a-inf e))
+%        (case-inf a-inf
+%          (() (ifu b ...))
+%          ((f) (inc (loop (f))))
+%          ((a) (bind* a-inf g ...))
+%          ((a f) (bind* a g ...)))))))
+% \end{schemedisplay}
+
+\section{Nominal Unification with Triangular Substitutions}\label{triangularsection}
+
+\enlargethispage{1em}
+
+In this section we modify the idempotent nominal unification
+implementation to work with triangular substitutions, significantly
+improving the performance of \alphakanren\footnote{This implementation
+  of triangular nominal unification is due to Joseph Near.  Ramana
+  Kumar has implemented a somewhat faster triangular unifier; however,
+  the resulting code bears little resemblance to the idempotent
+  algorithm of~\cite{Urban-Pitts-Gabbay/04}.}.  We present only the
+definitions that differ from those already presented.
+
+Like the core miniKanren implementation of
+Chapter~\ref{mkimplchapter}, our triangular unifier relies on a
+\scheme|walk| function for looking up values in a triangular
+substitution.  The nominal \scheme|walk| function is complicated by
+the need to handle suspensions and permutations.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define walk
+  (lambda (x s)
+    (let loop ((x x) (pi '()))
+      (pmatch x
+        (`(susp-tag ,pi^ ,v)
+         (let ((v (assq (v) s)))
+           (cond
+             (v (loop (cdr v) (append pi^ pi)))
+             (else (apply-pi pi x)))))
+        (else (apply-pi pi x))))))
+\end{schemedisplay}
+
+We can now redefine \scheme|walk*| in terms of \scheme|walk|.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define walk*
+  (lambda (v s)
+    (let ([v (walk v s)])
+      (pmatch v
+        (`(tie-tag ,a ,t) (list 'tie-tag a (walk* t s)))
+        (`(,a . ,d) (guard (untagged? a))
+         (cons (walk* a s) (walk* d s)))
+        (else v)))))
+\end{schemedisplay}
+
+\scheme|unify| no longer uses \scheme|compose-subst| or
+\scheme|apply-subst|.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define unify
+  (lambda (eqns sigma nabla fk)
+    (mv-let ((sigma^ delta) (apply-sigma-rules eqns sigma fk))
+      (unifyhash delta sigma^ nabla fk))))
+\end{schemedisplay}
+
+Similarly, \scheme|unifyhash| no longer uses \scheme|apply-subst|.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define unifyhash
+  (lambda (delta sigma nabla fk)
+    (let ((delta (delta-union nabla delta)))
+      (list sigma (apply-nabla-rules delta sigma fk)))))
+\end{schemedisplay}
+
+\scheme|apply-sigma-rules| now takes \scheme|sigma| as an additional
+argument, which it passes to \scheme|sigma-rules|; also,
+\scheme|apply-sigma-rules| no longer uses \scheme|compose-subst|.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define apply-sigma-rules
+  (lambda (eqns sigma fk)
+    (cond
+      ((null? eqns) `(,sigma ,empty-delta))
+      (else
+       (let ((eqn (car eqns)) (eqns (cdr eqns)))
+         (mv-let ((eqns sigma delta) (or (sigma-rules eqn sigma eqns) (fk)))
+           (mv-let ((sigma^ delta^) (apply-sigma-rules eqns sigma fk))
+             (list sigma^ (delta-union delta^ delta)))))))))
+\end{schemedisplay}
+
+\scheme|apply-nabla-rules| also takes \scheme|sigma| as an additional
+argument, which it passes to \scheme|nabla-rules|.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define apply-nabla-rules
+  (lambda (delta sigma fk)
+    (cond
+      ((null? delta) empty-nabla)
+      (else
+       (let ((c (car delta)) (delta (cdr delta)))
+         (mv-let ((delta nabla) (or (nabla-rules c sigma delta) (fk)))
+           (delta-union nabla (apply-nabla-rules delta sigma fk))))))))
+\end{schemedisplay}
+
+\scheme|sigma-rules| no longer uses \scheme|apply-subst|, but now
+walks \scheme|eqns| in \scheme|sigma|, which is passed in as an
+additional argument.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define sigma-rules  
+  (lambda (eqn sigma eqns)
+    (let ((eqn (cons (walk (car eqn) sigma) (walk (cdr eqn) sigma))))
+      (pmatch eqn
+        (`(,c . ,c^)
+         (guard (not (pair? c)) (equal? c c^))
+         `(,eqns ,sigma ,empty-delta))
+        (`((tie-tag ,a ,t) . (tie-tag ,a^ ,t^))
+         (guard (eq? a a^))
+         `(((,t . ,t^) . ,eqns) ,sigma ,empty-delta))
+        (`((tie-tag ,a ,t) . (tie-tag ,a^ ,t^))
+         (guard (not (eq? a a^)))
+         (let ((u^ (apply-pi `((,a ,a^)) t^)))
+           `(((,t . ,u^) . ,eqns) ,sigma ((,a . ,t^)))))
+        (`((nom-tag __) . (nom-tag __))
+         (guard (eq? (car eqn) (cdr eqn)))
+         `(,eqns ,sigma ,empty-delta))
+        (`((susp-tag ,pi ,x) . (susp-tag ,pi^ ,x^))
+         (guard (eq? (x) (x^)))
+         (let ((delta (map (lambda (a) (cons a (x))) 
+                           (disagreement-set pi pi^))))
+           `(,eqns ,sigma ,delta)))
+        (`((susp-tag ,pi ,x) . ,t)
+         (guard (not (occurs-check (x) t)))
+         (let ((sigma (ext-s (x) (apply-pi (reverse pi) t) sigma)))
+           `(,eqns ,sigma ,empty-delta)))
+        (`(,t . (susp-tag ,pi ,x))
+         (guard (not (occurs-check (x) t)))
+         (let ((sigma (ext-s (x) (apply-pi (reverse pi) t) sigma)))
+           `(,eqns ,sigma ,empty-delta)))
+        (`((,t1 . ,t2) . (,t1^ . ,t2^))
+         (guard (untagged? t1) (untagged? t1^))
+         `(((,t1 . ,t1^) (,t2 . ,t2^) . ,eqns) ,sigma ,empty-delta))
+        (else #f)))))
+\end{schemedisplay}
+
+\newpage
+
+\scheme|nabla-rules| also takes \scheme|sigma| as an additional
+argument, which it uses to walk \scheme|d|.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define nabla-rules
+  (lambda (d sigma delta)
+    (let ((d (cons (walk (car d) sigma) (walk (cdr d) sigma))))
+      (pmatch d
+        (`(,a . ,c)
+         (guard (not (pair? c)))
+         `(,delta ,empty-nabla))
+        (`(,a . (tie-tag ,a^ ,t))
+         (guard (eq? a^ a))
+         `(,delta ,empty-nabla))
+        (`(,a . (tie-tag ,a^ ,t))
+         (guard (not (eq? a^ a)))
+         `(((,a . ,t) . ,delta) ,empty-nabla))
+        (`(,a . (nom-tag __))
+         (guard (not (eq? a (cdr d))))
+         `(,delta ,empty-nabla))
+        (`(,a . (susp-tag ,pi ,x))
+         (let ((a (apply-pi (reverse pi) a)) (x (x)))
+           `(,delta ((,a . ,x)))))
+        (`(,a . (,t1 . ,t2))
+         (guard (untagged? t1))
+         `(((,a . ,t1) (,a . ,t2) . ,delta) ,empty-nabla))
+        (else #f)))))
+\end{schemedisplay}
+
+The redefinition of \scheme|reify| uses the new \scheme|apply-reify-s|
+function in place of some uses of \scheme|walk*|.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define reify
+  (lambda (x p)
+    (mv-let ((sigma nabla) p)
+      (let* ((v (walk* x sigma)) (s (reify-s v)) (v (apply-reify-s v s)))
+        (let ((nabla (filter (lambda (a) (and (symbol? (car a)) (symbol? (cdr a))))
+                       (apply-reify-s nabla s))))
+          (cond
+            ((null? nabla) v)
+            (else `(,v : ,nabla))))))))
+\end{schemedisplay}
+
+\newpage
+
+\scheme|apply-reify-s| is new, but is almost identical to the old
+definition of \scheme|walk*| in section~\ref{akreifysection}.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define apply-reify-s
+  (lambda (v s)
+    (pmatch v
+      (`,c (guard (not (pair? c))) c)
+      (`(tie-tag ,a ,t) (list 'tie-tag (get a s) (apply-reify-s t s)))
+      (`(nom-tag __) (get v s))
+      (`(susp-tag () __) (get v s))
+      (`(susp-tag ,pi ,x) 
+       (list 'susp-tag
+         (map (lambda (swap)
+                (pmatch swap
+                  (`(,a ,b) (list (get a s) (get b s)))))
+              pi)
+         (get (x) s)))
+      (`(,a . ,d) (cons (apply-reify-s a s) (apply-reify-s d s))))))
+\end{schemedisplay}
+
+By using triangular rather than idempotent substitutions, unification
+is as much as ten times faster and is more memory efficient.
+
+An important limitation of both the triangular and idempotent
+implementations is that neither currently supports disequality
+constraints.
+
+% \section{Performance Comparison: Idempotent vs. Triangular Substitutions}\label{akperfsection}
+
+% I'm not using anything fancy. The occurs-check is easy to turn off, but I've left it on here. I tried to keep this file as close to alphamk.scm as possible. I wrote a simple test that should take time linear in the length of the list. Even without any other optimizations, it's a huge improvement:
+
+% Idempotent:
+% > (time (run* (q) (exist (x) (testo (make-list 400) x))))
+% running stats for (run* (q) (exist (x) (testo (make-list 400) x))):
+%     1373 collections
+%     36043 ms elapsed cpu time, including 4156 ms collecting
+%     38922 ms elapsed real time, including 4609 ms collecting
+%     5745917976 bytes allocated
+% (_.0)
+
+% Triangular:
+% > (time (run* (q) (exist (x) (testo (make-list 400) x))))
+% running stats for (run* (q) (exist (x) (testo (make-list 400) x))):
+%     8 collections
+%     396 ms elapsed cpu time, including 12 ms collecting
+%     411 ms elapsed real time, including 14 ms collecting
+%     35858608 bytes allocated
+% (_.0)
+
+% The difference in allocation was something of a surprise to me, but it makes sense. Of course, Ramana's version with unsound unification is still faster, but it's not nearly as big an improvement over the "naive" triangular version as that version is over the original:
+% > (time (run #f (q) (exist (x) (testo (make-list 400) x))))
+% running stats for (run #f (q) (exist (x) (testo (make-list 400) x))):
+%     1 collection
+%     176 ms elapsed cpu time, including 52 ms collecting
+%     187 ms elapsed real time, including 55 ms collecting
+%     3028096 bytes allocated
+% (*0)
+
+% This version runs most of the Pelletier problems using alphaTAP. There are a few that it can't solve without the proof (like 34). I don't *think* this is due to errors in the implementation, but I could be wrong. The aim is to make it fast while staying as close to the paper version as possible, right?
+
+% Joe

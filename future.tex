@@ -1,0 +1,428 @@
+\chapter{Future Work}\label{futureworkchapter}
+
+In this chapter we propose future work related to miniKanren, and to
+relational programming in general.
+
+This chapter is organized as follows.  In
+section~\ref{futureformalization} we discuss how our work on
+miniKanren might be formalized.  Section~\ref{futureimplementation}
+presents possible improvements to the existing miniKanren
+implementation, while section~\ref{futureextensions} suggests how the
+miniKanren language might be extended.  Section~\ref{futureidioms}
+considers future work on relational idioms, while
+section~\ref{futureapplications} proposes future applications of
+miniKanren. Finally, in section~\ref{futuretools} we propose tools
+that might ease the burden on relational programmers.
+
+\section{Formalization}\label{futureformalization}
+
+From a formalization standpoint, the most important future work is to
+create a formal semantics for miniKanren.  Perhaps the simplest
+approach would be to start from the operational semantics of the
+nominal logic programming language MLSOS, as described
+in~\citet{lakin2007}.  Of course, miniKanren's semantics would become
+more complex if the language extensions proposed in
+section~\ref{futureextensions} were added.  Indeed, it is the
+interaction between different language features (nominal unification
+and constraint logic programming, for example) that will make
+extending miniKanren challenging.
+
+The core miniKanren implementation presented in
+Chapter~\ref{mkimplchapter} uses a stream-based interleaving search
+strategy.  The use of \scheme|inc|s (thunks) to force interleaving
+makes it difficult to exactly characterize the search behavior, and
+therefore the order in which miniKanren produces answers.  It would be
+both interesting and useful to mathematically describe this
+interleaving behavior (see section~\ref{futureimplementation}).
+
+% Prove properties of \scheme|walk| (recent work by Dave, Andy, and Dan)
+
+In Chapter~\ref{alphatapchapter} we replaced \leantap's use of
+Prolog's \mbox{{\tt copy\_term/2}} with a purely declarative combination of
+tagging and nominal unification; this technique was key to making
+\alphatapsp purely relational.  Unfortunately, this approach can only
+be used when the programmer knows the structure of the terms to be
+copied.  It would be useful to formalize this technique, to better
+understand its applicability and limitations.
+
+%formalize technique in 
+%revist unhappy family
+%encasulation of search in Curry (cloning argument)
+
+The relational arithmetic system presented in
+Chapter~\ref{arithchapter} uses bounds on term sizes to provide strong
+termination guarantees for arithmetic relations\footnote{At least, for
+  single arithmetic relations whose arguments do not share
+  unassociated logic variables.}.  A systematic approach to deriving
+such bounds on term sizes would be very helpful for relational
+programmers.  Of course, G\"{o}del and Turing showed that it is
+impossible to guarantee termination for all goals we might wish to
+write, so in general we will not be able to achieve finite failure
+through bounds, or any other technique\footnote{For example, the
+  strong termination guarantees for our arithmetic system do not hold
+  for conjunction of addition and multiplication goals.}.  However,
+even when such bounds exist, it may be difficult to express them in
+miniKanren.  Indeed, poorly expressed bounds may themselves cause
+divergence---for example, by attempting to eagerly determine the
+length of an uninstantiated (and therefore unbounded)
+list\footnote{See Chapter~\ref{divergencechapter} for more on the
+  difficulty of expressing bounds on term sizes.}.  A systematic
+approach to expressing bounds already derived by the programmer would
+be most useful.
+
+Section~\ref{triangularsection} presents a Scheme implementation of a
+nominal unifier that uses triangular substitutions.  This algorithm
+should be formalized and proved correct, similar to the presentation
+of (idempotent) nominal unification in~\citet{Urban-Pitts-Gabbay/04}.
+% [perhaps Joe's would be easier to prove]
+
+\citet{HermanWand08:Hygiene} use nominal logic to describe an
+idealized version of Scheme's \scheme|syntax-rules| hygienic macro
+system.  It would be interesting to extend this work to the full
+\scheme|syntax-rules| system, perhaps by implementing the macro system
+as an \alphakanrensp relation.
+
+A more speculative area of future work is the connection between the
+various causes of divergence described in
+Chapter~\ref{divergencechapter}.  As discussed in the conclusion of
+this dissertation, there may be a deep connection between these causes
+of divergence, and between the techniques for avoiding them.  Since
+divergence is an effect, monads~\cite{moggi91notions} or
+arrows~\cite{hughes98generalisingmonads} may provide the best
+framework for exploring these ideas.
+
+%monads + mk
+%monads/arrows + divergence
+
+
+\section{Implementation}\label{futureimplementation}
+
+The core miniKanren implementation presented in
+Chapter~\ref{mkimplchapter} uses streams to implement backtracking
+search\footnote{Although one could argue that the stream-based
+  implementation performs backtracking search without actually
+  backtracking.}.  As described in \citet{Wand04relatingmodels}, our
+use of streams could be modelled using explicit success and failure
+continuations.  When extending the miniKanren language, it is
+sometimes more convenient to use this two-continuation model of
+backtracking---for example, the first implementation of tabling for
+miniKanren used continuations rather than streams.
+
+The streams implementation of miniKanren makes liberal use of
+\scheme|inc|s (thunks) to force interleaving in the search.
+Unfortunately, it is difficult to exactly replicate this interleaving
+search behavior in the two-continuation model.  As a result,
+continuation-based implementations of miniKanren may produce answers
+in a different order than stream-based implementations, which makes it
+difficult to test, benchmark, or otherwise compare different
+implementations.  It therefore would be extremely convenient to have a
+continuation-based implementation of miniKanren that exactly mirrors
+the search behavior of the streams-based implementation from
+Chapter~\ref{mkimplchapter}.  This may require a formal
+characterization of the stream-based search strategy, as discussed in
+section~\ref{futureformalization}.
+
+We currently use association lists to represent substitutions; we may
+wish to consider other purely functional representations of
+substitutions that would make variable lookup less expensive.  For
+example, Abdulaziz Ghuloum previously implemented a trie-based
+representation of substitutions that performs at least as well as the
+fastest walk-based algorithm presented in
+Chapter~\ref{walkimpl}. Using a trie-based representation of
+substitutions may mean giving up on the clever method of implementing
+disequality constraints described in Chapter~\ref{diseqimplchapter}.
+
+Relational programming is inherently parallelizable.  In fact, we have
+already implemented two parallel versions of miniKanren: one written
+in Scheme and one in Erlang~\cite{armstrong03}. However, neither
+parallel implementation runs as quickly as the sequential
+implementation of miniKanren presented in Chapter~\ref{mkimplchapter}.
+One difficulty in making a parallel implementation run efficiently is
+that miniKanren suffers from an ``embarrassment of parallelism''.  For
+example, a recursive goal might contain a \scheme|conde| whose first
+clause contains a single unification. The overhead of sending this
+single unification to a new core or processor may be more expensive
+than just performing the unification. Ciao Prolog solves this problem
+by performing a ``granularity analysis'' to determine which parts of a
+program perform enough computation to offset the overhead of
+parallelization~\cite{granularity90,lopez96methodology}.
+
+Our purely functional implementation of miniKanren also implies a
+different set of design choices than would be made when parallelizing
+a Prolog implementation based on the Warren Abstract Machine. In
+particular, our stream-based search implementation, combined with our
+functional representation of
+substitutions\footnote{\citet{gupta93analysis} have explored the
+  tradeoffs of different environment representations in the context of
+  parallel logic programming.}, means that disjunction is truly
+parallel: failure of one disjunct does not require communication with
+other disjuncts.
+
+Reification of nominal terms is another area for future work.  The
+core-miniKanren reifier presented in Chapter~\ref{mkimplchapter}
+enforces several important invariants: swapping adjacent calls to
+\scheme|==|, swapping arguments within a single call to \scheme|==|,
+or reordering nested \scheme|exist| clauses\footnote{Assuming this is
+  done without inadvertently shadowing variables, or leaving
+  previously bound variables unbound.} cannot affect reified answers.
+We would like \alphakanrensp to ensure similar invariants; however,
+reification in \alphakanrensp is more complicated, since each term
+containing a \scheme|tie| now represents an infinite equivalence class
+of $\alpha$-equivalent terms. Additionally, we do not have a canonical
+representation for permutations associated with suspensions. Finally,
+reification must also handle freshness constraints.
+
+miniKanren uses a complete interleaving search strategy, which ensures
+disjunction (\scheme|conde|) is commutative---swapping the order of
+\scheme|conde| clauses can affect the order in which answers are
+returned, but cannot affect whether a goal diverges. In contrast,
+miniKanren's conjunction operators (\scheme|exist| and \scheme|fresh|)
+are not commutative---swapping conjuncts can cause a goal that
+previously failed finitely to now diverge.  It is easy to see that
+commutative conjunction can be implemented: just run in parallel every
+possible ordering of conjuncts. Unfortunately, this simplistic
+approach is far too expensive to be used in practice. However, it may
+be possible to more efficiently implement commutative conjunction by
+interleaving the evaluation of conjuncts, and allowing each conjunct
+to partially extend the substitution. This would allow conjuncts to
+communicate with each other by extending the substitution, thereby
+allowing the conjunction to ``fail fast'', and avoiding the
+duplication of work inherent in the naive approach described above.
+It is not clear whether this approach is efficient enough to be used
+throughout an entire program; the programmer may need to restrict use
+of commutative conjunction to conjunctions containing multiple
+recursive goals.
+
+Alternatively, it may be possible to \emph{simulate} commutative
+conjunction using a combination of continuations, interleaving search,
+and tabling.  This approach would only be a simulation of true
+commutative conjunction because tabling is defeated if an argument
+changes with each recursive call.
+
+The core miniKanren implementation presented in
+Chapter~\ref{mkimplchapter} is an embedding in Scheme, using a
+combination of procedures and hygienic macros.  Although this
+embedding allows us to easily benefit from the optimizations provided
+by a host Scheme implementation, we lose the ability to analyze or
+transform entire miniKanren programs. A miniKanren compiler would
+allow us to perform more sophisticated program analyses. Finally, a
+miniKanren interpreter\footnote{In the long tradition of writing
+  meta-circular Scheme interpreters, a meta-circular miniKanren
+  interpreter would be especially satisfying.} or abstract machine
+would be useful from both an implementation and formalization
+standpoint.
+
+
+\section{Language Extensions}\label{futureextensions}
+
+\alphakanren's support for nominal logic programming could be extended
+in several ways.  Perhaps the simplest extension would be to add
+MLSOS's name inequality constraint~\cite{lakin2007}, which is
+essentially a disequality constraint limited to noms (and to
+suspensions that will become noms).  A more ambitious extension would
+be to add full disequality constraints to \alphakanren.  One might
+also implement equivariant unification~\cite{DBLP:conf/rta/Cheney05},
+which extends nominal unification with the ability to include logic
+variables in permutations; however, the expense of equivariant
+unification~\cite{DBLP:conf/icalp/Cheney04} limits its
+appeal\footnote{Although~\citet{DBLP:conf/tlca/UrbanC05} show that it
+  is often possible to avoid full equivariant unification in real
+  programs.}.  \citet{DowekEtAl} recently presented
+a variant of nominal unification using ``permissive'' nominal terms,
+which do not require explicit freshness constraints; permissive
+nominal terms might simplify reification of \alphakanrensp answers.
+
+Our tabling implementation does not currently work with disequality
+constraints or freshness constraints.  It would be very useful to
+extend tabling to work with these constraints.  Alternatively, it may
+be possible to add tabling to \alphakanrensp by using permissive
+nominal terms, which do not require freshness constraints.
+
+\citet{DBLP:conf/iclp/GuptaBMSM07} have implemented a coinductive
+logic programming language that can express infinite streams using
+coinductive definitions of goals.  The heart of their system is an
+implementation of tabling, in which unification rather than
+reification is used to determine whether a call is a variant of an
+already tabled call.  It should be straightforward to add coinductive
+logic programming to miniKanren, since we have already implemented
+tabling.  Also, it would be interesting to investigate if other
+notions of variant calls make sense---for example, what if we used
+subsumption instead of reification or unification? Would we get a
+different type of logic programming?  Finally, the streams that can be
+created using the system of \citeauthor{DBLP:conf/iclp/GuptaBMSM07}
+must have a regular structure---for example, their system cannot
+represent a stream of all the prime numbers.  How might more
+sophisticated streams be expressed?
+
+One alternative to requiring the occurs check for sound unification is
+to allow infinite terms, as in Prolog II. This would require changing
+the reifier to print circular terms. We would also want our core
+language forms, such as disequality constraints, to handle infinite
+terms\footnote{SWI Prolog~\cite{Wielemaker:03b} includes many
+  predicates that work on infinite terms, and might serve as an
+  inspiration.}.
+
+An extremely useful extension to miniKanren would be the addition of
+constraint logic programming, or
+CLP~\cite{DBLP:journals/jlp/JaffarM94}\footnote{Actually, miniKanren
+  and \alphakanrensp already support several types of constraints:
+  unification (\scheme|==|) and dis-unification (\scheme|=/=|)
+  constraints, and the freshness constraints of nominal logic.
+  However, there are many other types of constraints we might want to
+  add.}.  The notation `CLP(X)' refers to constraint logic programming
+over some domain `X'; common domains include the integers (CLP(Z)),
+rational numbers (CLP(Q)), real numbers (CLP(R)), and finite domains
+(CLP(FD)).  Most useful for existing applications of miniKanren would
+be CLP(FD) and CLP(Z), which would allow us to declaratively express
+arithmetic in a more efficient manner than the arithmetic system of
+Chapter~\ref{arithchapter}\footnote{The declarative arithmetic system
+  of Chapter~\ref{arithchapter} has several advantages over the
+  constraint approach, however.  As opposed to CLP(FD), our system
+  works on numbers of arbitrary size.  Our system is also implemented
+  entirely at the user-level language, without any constraints other
+  than unification, while adding CLP(FD) or CLP(Z) requires
+  significant changes to the underlying implementation, and may
+  interact in undesirable ways with other language features.}.
+
+miniKanren, like Scheme, is dynamically-typed. \citet{siek06:gradual}
+show how \emph{gradual typing} can be used to add a sophisticated type
+system to a dynamically typed language, without giving up the
+flexibility of dynamic typing\footnote{There has also been recent work
+  on adding something like gradual typing to Prolog (see
+  ~\cite{towardstypedprolog}, although it is unclear whether these
+  researchers are aware of the Scheme community's work on gradual
+  typing and soft typing~\cite{softtyping}.}.  It would be interesting
+to apply this typing scheme to miniKanren, since supporting logic
+variables and constraints may require extending the notions of gradual
+typing.
+
+Relational goals often append two lists; if the first list is an
+uninstantiated logic variable, this results in infinitely many
+answers, which can easily lead to divergence. It may be possible to
+create an \scheme|append| constraint that represents the delayed
+appending of two lists, and avoids enumerating infinitely many
+appended lists.
+
+Another line of future work would be to implement non-standard logics
+for relational programming, such as temporal logic, linear logic, and
+modal logic.  Of course, supporting any of these logics would require
+significant changes to miniKanren, and would require careful
+consideration of how various language extensions would interact with
+the new logic.
+
+Modern functional logic programming languages like Curry are based on
+narrowing~\cite{AntoyHanusMasseySteiner01PPDP}, which combines term
+rewriting with the ability to instantiate logic variables. It would be
+interesting to implement a language based on \emph{nominal}
+narrowing---that is, narrowing based on nominal
+rewriting~\cite{nominalrewriting}. This would allow a single
+implementation to express nominal functional programming (as in
+FreshML~\cite{ShinwellPG03} or C$\alpha$ml~\cite{pottier06}), nominal
+logic programming (as in \alphaprolog~\cite{CheneyU04},
+MLSOS~\cite{lakin2007}, or \alphakanren), hygienic macros (as in
+Scheme\footnote{\citet{HermanWand08:Hygiene} describe a simplified
+  version of Scheme's \scheme|syntax-rules| macro system using nominal
+  logic.}), and nominal term rewriting (as in Maude~\cite{Maude2:03},
+Stratego~\cite{stratego}, or PLT
+Redex~\cite{DBLP:conf/rta/MatthewsFFF04}, but with the addition of
+nominal logic).
+
+Like MLSOS and \alphaprolog, \alphakanrensp is well suited for
+expressing the rules and side-conditions of Structural Operational
+Semantics (SOS)~\cite{Plotkin:2004:SAO}.  It would be informative to
+explore which SOS rules or side-conditions \emph{cannot} be easily
+expressed in \alphakanren; such an exercise would likely result in new
+constraints and other language extensions.  Similarly, it would be
+informative to investigate which Scheme, Prolog, and Curry programs we
+cannot satisfactorily express in a purely relational manner.
+
+Perhaps the greatest challenge in extending miniKanren is to combine
+all of these language features in a meaningful way. Ciao Prolog
+attempts to control interactions between language features through a
+module system~\cite{DBLP:journals/tcs/GrasH99}. The addition of
+libraries to the \RsixRSsp Scheme standard~\cite{r6rs} should allow us
+to do the same. However, a more sophisticated approach based on monads
+and monad transformers may better control the interaction between
+language features.
+
+
+
+\section{Idioms}\label{futureidioms}
+
+\citet{Okasaki:1999} has investigated the use of purely functional
+data structures, many of which are comparable in efficiency to
+imperative data structures\footnote{Indeed, uses of purely functional
+  data structures can be even more efficient than uses of imperative
+  data structures, due to sharing.}.  Even more so than in functional
+programming, data representation is essential to relational
+programming.  Therefore, it would be interesting and useful to
+investigate the use of \emph{purely relational} data structures---that
+is, data structures and data representations that are especially
+well-suited for relational programming.  Some of these data structures
+might take advantage of relational language features such as nominal
+unification or constraints.
+
+Also, as mentioned in section~\ref{futureformalization}, it would be
+useful to formalize our combination of tagging and nominal unification
+to emulate Prolog's \mbox{{\tt copy\_term/2}} in a purely declarative manner.
+
+
+
+\section{Applications}\label{futureapplications}
+
+It should be relatively easy to extend the arithmetic system of
+Chapter~\ref{arithchapter} to handle rational numbers.  Probably the
+most difficult part of this exercise would be maintaining fractions in
+simplified form.
+
+An interesting extension to the type inferencer in
+section~\ref{aktypeinf} would be to support
+polymorphic-\scheme|let|~\cite{tapl}.  At a minimum, this would
+require a declarative way to perform a combination of substitution and
+term copying.  Of course, the implementation of \alphatapsp in
+Chapter~\ref{alphatapchapter} also uses these techniques.  However,
+there may be enough differences between \alphatapsp and the type
+inferencer to make applying these techniques difficult or impossible.
+If so, a new type of constraint may be called for.
+
+As described in Chapter~\ref{alphatapchapter}, the \alphatapsp theorem
+prover allows a user to guide the proof search by partially
+instantiating the prover's proof-tree argument.  It should be possible
+to extend \alphatap, making it act as a rudimentary interactive proof
+assistant.  This would further demonstrate the flexibility of
+relational programming; more importantly, creating such a tool might
+require new techniques that would be useful for writing relational
+programs in general.
+
+
+
+\section{Tools}\label{futuretools}
+
+As mentioned in section~\ref{futureformalization}, integrating bounds
+on term size into an existing relation can be difficult.  A tool that
+could take a relation, along with a specification of bounds on the
+argument sizes, and synthesize a new relation that incorporates those
+bounds would be extremely helpful.
+
+A tool to automatically translate Scheme programs to miniKanren would
+also be handy.  Ideally, this tool would generate purely relational
+miniKanren code adhering to the non-overlapping principle (see
+section~\ref{reconsiderrember}).  This may be possible, at least for
+many simple Scheme functions, if the programmer were to help the tool
+by specifying how to represent terms, along with an appropriate
+tagging scheme.  However, deriving miniKanren relations from Scheme
+functions is not the real difficultly---rather, ensuring finite
+failure for a wide variety of arguments is what makes relational
+programming so difficult.
+
+A Prolog-to-Scheme translator would also be useful.  Translating pure
+Prolog programs into miniKanren should be very easy, especially since
+the \scheme|lambda-e| pattern-matching macro is similar to Prolog's
+pattern matching syntax.
+
+
+% Design patterns for relational programming
+
+%Contracts and relational programming
+
+% Proof techiques/recursion

@@ -1,0 +1,815 @@
+\chapter{Implementation II:  Optimizing {\em walk}}\label{walkimpl}
+
+In this chapter we examine the efficiency of the \mbox{\scheme|walk|}
+algorithm presented in Chapter~\ref{mkimplchapter}, which is the heart
+of the unification algorithm.  We present various optimizations to
+\mbox{\scheme|walk|}, which significantly improve performance of
+unification, and indeed the entire miniKanren implementation.
+
+This chapter is organized as follows.  In section~\ref{walkexpensive}
+we examine the worst-case performance of the \mbox{\scheme|walk|}
+algorithm, with emphasis on the cost of looking up an unassociated
+variable.  Section~\ref{birthrecords} introduces an optimization using
+\emph{birth records}, which can greatly increase the speed of looking
+up an unassociated variable.  In section~\ref{elimassq} we look at an
+additional optimization that requires we rewrite \mbox{\scheme|walk|}
+using explicit recursion instead of \mbox{\scheme|assq|}.  Finally,
+section~\ref{storesubst} shows how we can further improve on the
+birth-records optimization by storing the current substitution in a
+variable when it is first introduced.
+% Finally, section~\ref{smartwalkbenchmark} demonstrates that the
+% optimizations work in practice by benchmarking the performance of
+% several miniKanren applications using the various walks.
+
+\section{Why {\em walk} is Expensive}\label{walkexpensive}
+In the worst case, the number of cdrs and tests
+performed by \mbox{\scheme|walk|} is quadratic in the length of the
+substitution.  This happens when looking up a variable at the
+beginning of a long ``unification chain''---for example, when looking
+up \mbox{\scheme|v|} in the ``perfectly triangular'' substitution
+\mbox{\scheme|`((,y . ,z) (,x . ,y) (,w . ,x) (,v . ,w))|}.  Contrast
+this with the linear cost of looking up \mbox{\scheme|v|} in the
+equivalent idempotent substitution 
+\mbox{\scheme|`((,y . ,z) (,x . ,z) (,w . ,z) (,v . ,z))|}.
+
+Fortunately, extremely long unification chains rarely occur in real
+logic programs.  Rather, the major cost of variable lookups is in
+walking unassociated variables.  When using triangular substitutions
+(or even idempotent substitutions), the entire substitution must be
+examined to determine that a variable in unassociated\footnote{Prolog
+  implementations based on the Warren Abstract Machine~\cite{wamtutorial} do
+  not use explicit substitutions to represent variable associations.
+  Instead, they represent each variable as a mutable box, and
+  side-effect the box during unification.  This makes variable lookup
+  extremely fast, but requires remembering and undoing these
+  side-effects during backtracking.  In addition, this simple model
+  assumes a depth-first search strategy, whereas our purely functional
+  representation can be used with interleaving search without
+  modification.}.
+
+One solution to this problem is to use a more sophisticated data
+structure to represent triangular substitutions---for example, we
+might use a trie~\cite{triememory} instead of a list, to ensure logarithmic
+cost when looking up an unassociated variable\footnote{Abdulaziz
+  Ghuloum has implemented miniKanren using a trie-based representation
+  of triangular substitutions.  David Bender and Lindsey Kuper have
+  extended this work, using a variety of purely functional data
+  structures to represent triangular substitutions.  These more
+  sophisticated representations of substitutions can result in much
+  faster walking of variables, which can greatly speed up many
+  miniKanren programs.  The best performance for their benchmarks
+  was achieved using a skew binary number representation within a
+  random access list~\cite{randomaccesslists}.}.  For simplicity we
+will retain our association list representation of substitutions.
+Instead of changing the substitution representation, we will use a
+trick to determine if a variable is unassociated without having to
+look at the entire substitution.
+
+\section{Birth Records}\label{birthrecords}
+
+To avoid examining the entire substitution when walking an
+unassociated variable, we will add a \emph{birth record} to the
+substitution whenever we introduce a variable using
+\mbox{\scheme|exist|}.  For example, to run the goal
+\mbox{\scheme|(exist (x y) (== 5 x))|} we would add the birth records
+\mbox{\scheme|`(,x . ,x)|} and
+\mbox{\scheme|`(,y . ,y)|} to the current substitution, then run
+\mbox{\scheme|(== 5 x)|} in the extended substitution.  
+Unifying \mbox{\scheme|x|} with \mbox{\scheme|5|} requires us to walk \mbox{\scheme|x|}:
+when we do so, we immediately encounter the birth record \mbox{\scheme|`(,x . ,x)|},
+indicating \mbox{\scheme|x|} is unassociated.  Unification then succeeds, adding the association
+\mbox{\scheme|`(,x . 5)|} to the substitution to produce \mbox{\scheme|`((,x . 5) (,x . ,x) (,y . ,y) ...)|}.
+
+Here are \mbox{\scheme|exist|} and \mbox{\scheme|walk|}, modified to use birth records.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define-syntax exist
+  (syntax-rules ()
+    ((_ (x ...) g0 g ...)
+     (lambdag@ (s)
+       (inc
+         (let ((x (var 'x)) ...)
+           (let* ((s (ext-s x x s))
+                  ...)
+             (bind* (g0 s) g ...))))))))
+\end{schemedisplay}
+\newpage
+\begin{schemedisplay}    
+(define walk
+  (lambda (v s)
+    (cond
+      ((var? v)
+       (let ((a (assq v s)))
+         (cond
+           (a (if (eq? (rhs a) v) v (walk (rhs a) s)))
+           (else v))))
+      (else v))))
+\end{schemedisplay}
+
+Technically, birth records ensure that we need not examine the entire
+substitution to determine a variable is unassociated.  However, in the
+worst case our situation has not improved\footnote{Indeed, the
+  situation is even worse, since the birth records more than double
+  the length of the substitution that must be walked.}: if a variable
+is introduced at the beginning of a program, but is not unified until
+the end of the program, the birth record will occur at the very end of
+the substitution, and lookup will still take linear time.
+Fortunately, in most real-world programs variables are unified shortly
+after they have been introduced.  This locality of reference means
+that, in practice, birth records significantly reduce the cost of
+walking unassociated variables.
+% (see section~\ref{smartwalkbenchmark}).
+
+\section{Eliminating {\em assq} and Checking the {\em rhs}}\label{elimassq}
+
+We can optimize \mbox{\scheme|walk|} in another way, although we will
+need to eliminate our call to \mbox{\scheme|assq|}, and introduce a
+recursion using ``named'' \scheme|let|
+\footnote{This chapter assumes miniKanren is
+  run under an optimizing compiler, such as Ikarus Scheme
+  or Chez Scheme.  When run under an interpreter, the
+  ``named''-\mbox{\scheme|let|} based \mbox{\scheme|walk|} described in this
+  section may run much slower than the \mbox{\scheme|assq|}-based
+  version, since \mbox{\scheme|assq|} is often hand-coded in C.  When
+  running under an interpreter, the \mbox{\scheme|assq|}-based
+  \mbox{\scheme|walk|} with birth records will probably be fastest.}.
+Here is the standard \mbox{\scheme|walk|}, without birth records.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define walk
+  (lambda (v s^)
+    (let loop ((s s^))
+      (cond
+        ((var? v)
+         (cond
+           ((null? s) v)
+           ((eq? v (lhs (car s))) (walk (rhs (car s)) s^))
+           (else (loop (cdr s)))))
+        (else v)))))
+\end{schemedisplay}
+
+We can optimize \mbox{\scheme|walk|} by exploiting an important
+property of the triangular substitutions produced by
+\mbox{\scheme|unify|}: in the substitution \mbox{\scheme|`((,x . ,y) . ,s^)|},
+the variable \mbox{\scheme|y|} will never appear in the
+left-hand-side (lhs) of any binding in \mbox{\scheme|s^|}.  Therefore,
+when walking a variable \mbox{\scheme|y|} we can look for
+\mbox{\scheme|y|} in both the lhs and rhs of each association.  If
+\mbox{\scheme|y|} is the lhs, we found the variable we are looking
+for, and need to walk the rhs in the original substitution.  However,
+if we find \mbox{\scheme|y|} in the rhs of an association, we know
+that \mbox{\scheme|y|} is unassociated.
+
+Here is the optimized version of \mbox{\scheme|walk|}
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define walk
+  (lambda (v s^)
+    (let loop ((s s^))
+      (cond
+        ((var? v)
+         (cond
+           ((null? s) v)
+           ((eq? v (rhs (car s))) v)
+           ((eq? v (lhs (car s))) (walk (rhs (car s)) s^))
+           (else (loop (cdr s)))))
+        (else v)))))
+\end{schemedisplay}
+
+\noindent where \scheme|lhs| and \scheme|rhs|\footnote{\scheme|lhs| is
+just defined to be \scheme|car|; \scheme|rhs| is just defined to be
+\scheme|cdr|.} return the left-hand-side and right-hand-side of an
+association, respectively\footnote{By checking the rhs before
+the lhs, we ensure that \scheme|walk| always terminates, even
+with substitutions that contain circularities.  If the substitution
+contains a circularity of the form \mbox{\scheme|`(,x . ,x)|} (a birth
+record), then walking \scheme|x| clearly terminates, since the
+\scheme|rhs| test will find \scheme|x| before performing the
+recursion.  If the substitution contains associations 
+\mbox{\scheme|`(,x . ,y)|} and \mbox{\scheme|`(,y . ,x)|},
+walking \scheme|x| still terminates despite the circularity.
+Assume \mbox{\scheme|`(,y . ,x)|} appears after 
+\mbox{\scheme|`(,x . ,y)|}
+(which will never happen for substitutions returned by
+\scheme|unify|); then when we walk \scheme|x|, we will end up walking
+\scheme|y| in the recursion.  But we will then find \scheme|y| on the
+rhs of \mbox{\scheme|`(,x . ,y)|}, which will end the walk.  The
+only other possibility is that \mbox{\scheme|`(,y . ,x)|} appears before \mbox{\scheme|`(,x . ,y)|}.  In this case, walking \scheme|x| does not
+result in a recursive call, since we find \scheme|x| on the
+rhs of \mbox{\scheme|`(,y . ,x)|}.  Similar reasoning applies for
+arbitrarily complicated circularity chains.}.
+
+Once we make a recursive call to \scheme|walk|, the
+\scheme|null?| test becomes superfluous, so we
+redefine \scheme|walk| using the \scheme|step| helper function.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define walk
+  (lambda (v s^)
+    (let loop ((s s^))
+      (cond
+        ((var? v)
+         (cond
+           ((null? s) v)
+           ((eq? v (rhs (car s))) v)
+           ((eq? v (lhs (car s))) (step (rhs (car s)) s^))
+           (else (loop (cdr s)))))
+        (else v)))))
+\end{schemedisplay}
+\newpage
+\begin{schemedisplay}
+(define step
+  (lambda (v s^)
+    (let loop ((s s^))
+      (cond
+        ((var? v)
+         (cond
+           ((eq? v (rhs (car s))) v)
+           ((eq? v (lhs (car s))) (step (rhs (car s)) s^))
+           (else (loop (cdr s)))))
+        (else v)))))
+\end{schemedisplay}
+
+
+\section{Storing the Substitution in the Variable}\label{storesubst}
+
+We now combine the birth records optimization presented in
+section~\ref{birthrecords} with checking for the walked variable in
+the rhs of each association, described in section~\ref{elimassq}.
+However, we wish to avoid polluting the substitution with birth
+records, which not only lengthen the substitution but also violate
+important invariants of our substitution
+representation\footnote{Namely, that a variable never appears on the
+  lhs of more than one association, and that substitutions never
+  contain circularities of the form \mbox{\scheme|`(,x . ,x)|}.}.
+Instead of adding birth records to the substitution, we will add a
+``birth substitution'' to each variable by storing the current
+substitution in the variable when it is created.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define-syntax exist
+  (syntax-rules ()
+    ((_ (x ...) g0 g ...)
+     (lambdag@ (s)
+       (inc
+         (let ((x (var s)) ...)
+           (bind* (g0 s) g ...)))))))
+\end{schemedisplay}
+
+Now, instead of checking for the birth records as we walk down the
+substitution, we check if the entire substitution is
+\mbox{\scheme|eq?|} to the substitution stored in the walked variable;
+if so, we know the variable is unassociated\footnote{It should be
+  noted that none of these optimizations avoid the $n+1$ passes that
+  might be required when looking up a variable in a perfectly
+  triangular substitution of length $n$.}.
+
+\newpage
+
+Here, then, is the most efficient definition of
+\mbox{\scheme|walk|}\footnote{Exercise for the reader: show that this
+  definition of \mbox{\scheme|walk|} works correctly on the renaming
+  substitution used in reification (section~\ref{mkreification})}.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define walk
+  (lambda (v s^)
+    (let loop ((s s^))
+      (cond
+        ((var? v)
+         (cond
+           ((eq? (vector-ref v 0) s) v)
+           ((eq? v (rhs (car s))) v)
+           ((eq? v (lhs (car s))) (step (rhs (car s)) s^))
+           (else (loop (cdr s)))))
+        (else v)))))
+\end{schemedisplay}
+
+% \section{Benchmarking {\em walk}}\label{smartwalkbenchmark}
+
+% [TODO Time the arithemtic system using the different walks.  From
+% previous informal benchmarks I know these optimizations are effective
+% for a wide variety of programs.]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+% [check our various implementation for variants of smart walk code]
+
+% [objective for this chapter--improve performance of walk algorithm]
+
+% [start with standard definition of exist and walk (non-interleaving
+% for exist; interleaving variant is obvious---just wrap an inc around
+% the body of the lambdag@)]
+
+% \begin{schemedisplay}
+% (define-syntax exist
+%   (syntax-rules ()
+%     ((_ (x ...) g0 g ...)
+%      (lambdag@ (s)
+%        (inc
+%          (let ((x (var 'x)) ...)
+%            (bind* (g0 s) g ...)))))))
+
+% (define walk
+%   (lambda (v s)
+%     (cond
+%       ((var? v)
+%        (let ((a (assq v s)))
+%          (cond
+%            (a (walk (rhs a) s))
+%            (else v))))
+%       (else v))))
+% \end{schemedisplay}
+
+% [may also want to include unify-check and ext-s defintions]
+
+
+% \section{Birth Records}
+
+% [discuss performance implications.  Ikarus and Chez vs. MzScheme, for
+% example.  birthrecords vs. our more efficient approach.  what if we
+% were using Haskell, and wanted to avoid side effects?]
+
+% [an advantage of birth records: can use normal walk inside of
+% walk*---don't need a second, naive version of walk for reification]
+
+% If we find the association \mbox{\scheme|`(,x . ,x)|} when walking
+% \scheme|x| in a substitution \scheme|s|, we know that \scheme|x| is
+% not associated with any value---there is no need to continue walking
+% \scheme|x|.
+
+
+% \section{Eliminating {\em assq}}
+
+% We can define the naive version of \scheme|walk| without \scheme|assq|:
+% \newpage
+
+% Since we walk both \scheme|u| and \scheme|v| at the beginning of
+% \scheme|unify|, we know that \scheme|u| and \scheme|v| do not appear
+% as the {\em lhs} of any association.
+% If when walking \scheme|u| in a substitution \scheme|s| 
+% we find the association \mbox{\scheme|`(,u . ,v)|}, then we know
+% \scheme|v| does not have an association to the right of 
+% \mbox{\scheme|`(,u . ,v)|}.  Hence we need to walk \scheme|v|
+% only up to its first occurrence as a {\em rhs}, and thus we can 
+% redefine \scheme|step|.
+
+
+
+% \section{Storing Substitutions in Variables}
+
+% [disadvantage of this approach: walk* must use naive walk for
+% reification---need two definitions of walk]
+
+% [present variants of walk in increasing efficiency]
+
+% [Mitch's optimization]
+
+% [code from /iu/mk/alphatap/optimized/mk.scm is the smartest walk
+% version in TRS (second edition?)]
+
+% A vector passed in as one of the first two arguments to \scheme|unify|
+% is treated as a variable.  In the definition of \scheme|exist|, we
+% create each vector that represents a variable with a symbol. Here, we
+% create each vector with the current substitution.
+
+
+% If the stored substitution of the variable \scheme|x| is encountered
+% (with \scheme|eq?|), then we know that the variable \scheme|x| that we
+% are walking cannot be a \scheme|lhs| of any association.  Thus, we can
+% redefine \scheme|step| for the last time.
+
+
+% \section{Alternative Substitution Representations}
+
+% [Aziz's trie-based representation---look in /Users/wilja/iu/mk/alphatap/aziz tree-subst (slow)]
+
+% [advantages and disadvantages]
+
+% [can we still use the clever approach of implementing disequality
+% constraints with this representation?]
+
+% [this is Aziz's code.  make sure he is okay with including the code in
+% my dissertation]
+
+% \begin{schemedisplay}
+% (library (mk)
+%   (export run == ==-check exist conde conda condu project var)
+%   (import (ikarus) (rnrs) (tree))
+
+%   (define-syntax lambdag@
+%     (syntax-rules ()
+%       ((_ (s) e) (lambda (s) e))))
+
+%   (define-syntax lambdaf@
+%     (syntax-rules ()
+%       ((_ () e) (lambda () e))))
+
+%   (define-syntax rhs
+%     (syntax-rules ()
+%       ((_ x) (cdr x))))
+
+%   (define-syntax lhs
+%     (syntax-rules ()
+%       ((_ x) (car x))))
+
+%   (define-syntax size-s
+%     (syntax-rules ()
+%       ((_ x) (t:size x))))
+
+%   (define counter -1)
+  
+%   (define var
+%     (lambda (x)
+%       (set! counter (add1 counter))
+%       (vector x counter)))
+  
+%   (define-syntax var?
+%     (syntax-rules ()
+%       ((_ x) (vector? x))))
+  
+%   (define empty-s '())
+
+%   (define var-idx
+%     (lambda (x)
+%       (vector-ref x 1)))
+
+%   (define walk
+%     (lambda (v s)
+%       (cond
+%         ((var? v)
+%          (cond
+%            ((t:lookup (var-idx v) s) =>
+%             (lambda (a)
+%               (walk (t:binding-value a) s)))
+%            (else v)))
+%         (else v))))
+
+%   (define ext-s
+%     (lambda (x v s)
+%       (t:bind (var-idx x) v s)))
+
+%   (define unify
+%     (lambda (v w s)
+%       (let ((v (walk v s))
+%             (w (walk w s)))
+%         (cond
+%           ((eq? v w) s)
+%           ((var? v) (ext-s v w s))
+%           ((var? w) (ext-s w v s))
+%           ((and (pair? v) (pair? w))
+%            (let ((s (unify (car v) (car w) s)))
+%              (and s (unify (cdr v) (cdr w) s))))
+%           ((equal? v w) s)
+%           (else #f)))))
+
+%   (define unify-check
+%     (lambda (u v s)
+%       (let ((u (walk u s))
+%             (v (walk v s)))
+%         (cond
+%           ((eq? u v) s)
+%           ((var? u) (ext-s-check u v s))
+%           ((var? v) (ext-s-check v u s))
+%           ((and (pair? u) (pair? v))
+%            (let ((s (unify-check 
+%                       (car u) (car v) s)))
+%              (and s (unify-check 
+%                       (cdr u) (cdr v) s))))
+%           ((equal? u v) s)
+%           (else #f)))))
+
+%   (define ext-s-check
+%     (lambda (x v s)
+%       (cond
+%         ((occurs-check x v s) #f)
+%         (else (ext-s x v s)))))
+
+%   (define occurs-check
+%     (lambda (x v s)
+%       (let ((v (walk v s)))
+%         (cond
+%           ((var? v) (eq? v x))
+%           ((pair? v) 
+%            (or 
+%              (occurs-check x (car v) s)
+%              (occurs-check x (cdr v) s)))
+%           (else #f)))))
+
+%   (define walk*
+%     (lambda (w s)
+%       (let ((v (walk w s)))
+%         (cond
+%           ((var? v) v)
+%           ((pair? v)
+%            (cons
+%              (walk* (car v) s)
+%              (walk* (cdr v) s)))
+%           (else v)))))
+
+%   (define reify-s
+%     (lambda (v s)
+%       (let ((v (walk v s)))
+%         (cond
+%           ((var? v)
+%            (ext-s v (reify-name (size-s s)) s))
+%           ((pair? v) (reify-s (cdr v)
+%                        (reify-s (car v) s)))
+%           (else s)))))
+
+%   (define reify-name
+%     (lambda (n)
+%       (string->symbol
+%         (string-append "_" "." (number->string n)))))
+
+%   (define reify
+%     (lambda (v s)
+%       (let ((v (walk* v s)))
+%         (walk* v (reify-s v empty-s)))))
+
+%   (define ==-check
+%     (lambda (v w)
+%       (lambdag@ (s)
+%         (unify-check v w s))))
+
+%   (define-syntax mzero 
+%     (syntax-rules () ((_) #f)))
+%   (define-syntax inc 
+%     (syntax-rules () ((_ e) (lambdaf@ () e))))
+%   (define-syntax unit 
+%     (syntax-rules () ((_ a) a)))
+%   (define-syntax choice 
+%     (syntax-rules () ((_ a f) (cons a f))))
+
+%   (define-syntax case-inf
+%     (syntax-rules ()
+%       ((_ e (() e0) ((f^) e1) ((a^) e2) ((a f) e3))
+%        (let ((a-inf e))
+%          (cond
+%            ((not a-inf) e0)
+%            ((procedure? a-inf)  (let ((f^ a-inf)) e1))
+%            ((not (and (pair? a-inf)
+%                       (procedure? (cdr a-inf))))
+%             (let ((a^ a-inf)) e2))
+%            (else (let ((a (car a-inf)) (f (cdr a-inf))) 
+%                    e3)))))))
+
+%   (define-syntax run
+%     (syntax-rules ()
+%       ((_ n (x) g0 g ...)
+%        (take n
+%          (lambdaf@ ()
+%            ((exist (x) g0 g ... 
+%               (lambdag@ (s)
+%                 (cons (reify x s) '())))
+%             empty-s))))))
+
+%   (define take
+%     (lambda (n f)
+%       (if (and n (zero? n)) 
+%         '()
+%         (case-inf (f)
+%           (() '())
+%           ((f) (take n f))
+%           ((a) a)
+%           ((a f)
+%            (cons (car a)
+%              (take (and n (- n 1)) f)))))))
+
+%   (define ==
+%     (lambda (u v)
+%       (lambdag@ (s)
+%         (unify u v s))))
+
+%   (define-syntax exist
+%     (syntax-rules ()
+%       ((_ (x ...) g0 g ...)
+%        (lambdag@ (s)
+%          (inc
+%            (let ((x (var 'x)) ...)
+%              (bind* (g0 s) g ...)))))))
+
+%   (define-syntax bind*
+%     (syntax-rules ()
+%       ((_ e) e)
+%       ((_ e g0 g ...) (bind* (bind e g0) g ...))))
+
+%   (define bind
+%     (lambda (a-inf g)
+%       (case-inf a-inf
+%         (() (mzero))
+%         ((f) (inc (bind (f) g)))
+%         ((a) (g a))
+%         ((a f) (mplus (g a) (lambdaf@ () (bind (f) g)))))))
+
+%   (define-syntax conde
+%     (syntax-rules ()
+%       ((_ (g0 g ...) (g1 g^ ...) ...)
+%        (lambdag@ (s) 
+%          (inc 
+%            (mplus* 
+%              (bind* (g0 s) g ...)
+%              (bind* (g1 s) g^ ...) ...))))))
+
+%   (define-syntax mplus*
+%     (syntax-rules ()
+%       ((_ e) e)
+%       ((_ e0 e ...) (mplus e0 
+%                       (lambdaf@ () (mplus* e ...))))))
+
+%   (define mplus
+%     (lambda (a-inf f)
+%       (case-inf a-inf
+%         (() (f))
+%         ((f^) (inc (mplus (f) f^)))
+%         ((a) (choice a f))
+%         ((a f^) (choice a (lambdaf@ () (mplus (f) f^)))))))
+
+
+%   (define-syntax conda
+%     (syntax-rules ()
+%       ((_ (g0 g ...) (g1 g^ ...) ...)
+%        (lambdag@ (s)
+%          (inc
+%            (ifa ((g0 s) g ...)
+%                 ((g1 s) g^ ...) ...))))))
+
+%   (define-syntax ifa
+%     (syntax-rules ()
+%       ((_) (mzero))
+%       ((_ (e g ...) b ...)
+%        (let loop ((a-inf e))
+%          (case-inf a-inf
+%            (() (ifa b ...))
+%            ((f) (inc (loop (f))))
+%            ((a) (bind* a-inf g ...))
+%            ((a f) (bind* a-inf g ...)))))))
+
+%   (define-syntax condu
+%     (syntax-rules ()
+%       ((_ (g0 g ...) (g1 g^ ...) ...)
+%        (lambdag@ (s)
+%          (inc
+%            (ifu ((g0 s) g ...)
+%                 ((g1 s) g^ ...) ...))))))
+
+%   (define-syntax ifu
+%     (syntax-rules ()
+%       ((_) (mzero))
+%       ((_ (e g ...) b ...)
+%        (let loop ((a-inf e))
+%          (case-inf a-inf
+%            (() (ifu b ...))
+%            ((f) (inc (loop (f))))
+%            ((a) (bind* a-inf g ...))
+%            ((a f) (bind* (unit a) g ...)))))))
+
+%   (define-syntax project 
+%     (syntax-rules ()                                                              
+%       ((_ (x ...) g g* ...)  
+%        (lambdag@ (s)
+%          (let ((x (walk* x s)) ...)
+%            ((exist () g g* ...) s))))))
+
+% )
+% \end{schemedisplay}
+
+% \begin{schemedisplay}
+% (library (tree)
+%   (export t:bind t:unbind t:lookup t:binding-value t:size)
+%   (import (rnrs) (rnrs records syntactic) (ikarus))
+  
+% ;  (import scheme)
+%   ;;; subst ::= (empty)
+%   ;;;         | (node even odd)
+%   ;;;         | (data idx val)
+
+%   (define-record-type node (fields e o))
+
+%   (define-record-type data (fields idx val))
+ 
+%   (define shift (lambda (n) (fxsra n 1)))
+
+%   (define unshift (lambda (n i) (fx+ (fxsll n 1) i)))
+
+%   (define t:size
+%     (lambda (x) (size x)))
+  
+%   (define t:bind
+%     (lambda (xi v s)
+%       (unless (and (fixnum? xi) (>= xi 0))
+%         (error 't:bind "index must be a fixnum, got ~s" xi))
+%       (bind xi v s)))
+  
+%   (define t:unbind
+%     (lambda (xi s)
+%       (unless (and (fixnum? xi) (>= xi 0))
+%         (error 't:unbind "index must be a fixnum, got ~s" xi))
+%       (unbind xi s)))
+  
+%   (define t:lookup
+%     (lambda (xi s)
+%       (unless (and (fixnum? xi) (>= xi 0))
+%         (error 't:lookup "index must be a fixnum, got ~s" xi))
+%       (lookup xi s)))
+  
+%   (define t:binding-value
+%     (lambda (s)
+%       (unless (data? s)
+%         (error 't:binding-value "not a binding ~s" s))
+%       (data-val s)))
+  
+%   (define push
+%     (lambda (xi vi xj vj)
+%       (if (fxeven? xi)
+%           (if (fxeven? xj)
+%               (make-node (push (shift xi) vi (shift xj) vj) '())
+%               (make-node (make-data (shift xi) vi) (make-data (shift xj) vj)))
+%           (if (fxeven? xj)
+%               (make-node (make-data (shift xj) vj) (make-data (shift xi) vi))
+%               (make-node '() (push (shift xi) vi (shift xj) vj))))))
+
+%   (define bind
+%     (lambda (xi vi s*)
+%       (cond
+%        [(node? s*)
+%         (if (fxeven? xi)
+%             (make-node (bind (shift xi) vi (node-e s*)) (node-o s*))
+%             (make-node (node-e s*) (bind (shift xi) vi (node-o s*))))]
+%        [(data? s*)
+%         (let ([xj (data-idx s*)] [vj (data-val s*)])
+%           (if (fx= xi xj)
+%               (make-data xi vi)
+%               (push xi vi xj vj)))]
+%        [else (make-data xi vi)])))
+
+%   (define lookup
+%     (lambda (xi s*)
+%       (cond
+%        [(node? s*)
+%         (if (fxeven? xi)
+%             (lookup (shift xi) (node-e s*))
+%             (lookup (shift xi) (node-o s*)))]
+%        [(data? s*)
+%         (if (fx= (data-idx s*) xi)
+%             s*
+%             #f)]
+%        [else #f])))
+
+%   (define size
+%     (lambda (s*)
+%       (cond
+%        [(node? s*) (fx+ (size (node-e s*)) (size (node-o s*)))]
+%        [(data? s*) 1]
+%        [else 0])))
+  
+%   (define cons^
+%     (lambda (e o)
+%       (cond
+%        [(or (node? e) (node? o)) (make-node e o)]
+%        [(data? e)
+%         (make-data (unshift (data-idx e) 0) (data-val e))]
+%        [(data? o)
+%         (make-data (unshift (data-idx o) 1) (data-val o))]
+%        [else '()])))
+
+%   (define unbind
+%     (lambda (xi s*)
+%       (cond
+%        [(node? s*)
+%         (if (fxeven? xi)
+%             (cons^ (unbind (shift xi) (node-e s*)) (node-o s*))
+%             (cons^ (node-e s*) (unbind (shift xi) (node-o s*))))]
+%        [(and (data? s*) (fx= (data-idx s*) xi)) '()]
+%        [else s*])))
+% )
+% \end{schemedisplay}
+
+% \section{Performance}
+
+% [compare mk's performance using different walk algorithms, with
+% benchmarks based on applications in the dissertation]
+
+% [do I want an entire chapter on performance?  if so, might need to
+% incorporate performance sections on walk, alphatap, and alphaleantap]

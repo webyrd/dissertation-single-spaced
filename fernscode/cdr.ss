@@ -1,0 +1,1 @@
+(define fcdr (timed-lambda (p) (fcar p) (cdrdollar p)))

@@ -1,0 +1,34 @@
+\chapter{Familiar Helpers}\label{helpers}
+The auxiliaries below are used in the implementation of \alphakanrensp in Chapter~\ref{akimplchapter}.
+
+\schemedisplayspace
+\begin{schemedisplay}
+(define get
+  (lambda (x s)
+    (cond
+      ((assq x s) => cdr)
+      (else x))))
+
+(define assp
+  (lambda (p s)
+    (cond
+      ((null? s) #f)
+      ((p (car (car s))) (car s))
+      (else (assp p (cdr s))))))
+\end{schemedisplay}
+
+\begin{schemedisplay}
+(define filter
+  (lambda (p s)
+    (cond
+      ((null? s) '())
+      ((p (car s)) (cons (car s) (filter p (cdr s))))
+      (else (filter p (cdr s))))))
+
+(define remove-duplicates
+  (lambda (s)
+    (cond
+      ((null? s) '())
+      ((memq (car s) (cdr s)) (remove-duplicates (cdr s)))
+      (else (cons (car s) (remove-duplicates (cdr s)))))))
+\end{schemedisplay}
