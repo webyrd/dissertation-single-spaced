@@ -1,6 +1,9 @@
 A very slightly cleaned up version of my dissertation, which (1) is easier to read and (2) typesets under modern XeLaTeX.  The archival version of my dissertation is at http://gradworks.umi.com/3380156.pdf.
 
 
+Dissertation file: `thesis.pdf`
+
+
 Changes in this version of the dissertation:
 
 * Changed from double-spacing to single-spacing.  This changed most of the pagebreaks in the document.
