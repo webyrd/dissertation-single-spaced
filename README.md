@@ -3,6 +3,8 @@ A very slightly cleaned up version of my dissertation, which (1) is easier to re
 
 Dissertation file: `thesis.pdf`
 
+To typeset, just type `make` (assuming you have a full install of TeX Live, including XeLaTeX).
+
 
 Changes in this version of the dissertation:
 
