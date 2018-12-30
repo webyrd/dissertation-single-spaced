@@ -1,4 +1,4 @@
-A very slightly cleaned up version of my dissertation, which (1) is easier to read and (2) typesets under modern XeLaTeX.  The archival version of my dissertation is at http://gradworks.umi.com/3380156.pdf.
+A very slightly cleaned up version of my dissertation, which (1) is easier to read and (2) typesets under modern XeLaTeX.  The archival version of my dissertation is at https://search.proquest.com/docview/304903505.
 
 This document is released under a Creative Commons Attribution 4.0 International (CC BY 4.0) license (http://creativecommons.org/licenses/by/4.0/)
 
