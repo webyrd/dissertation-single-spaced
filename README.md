@@ -6,7 +6,7 @@ This document is released under a Creative Commons Attribution 4.0 International
 
 Dissertation file: `thesis.pdf`
 
-To typeset, just type `make` (assuming you have a full install of TeX Live, including XeLaTeX).
+To typeset, just type `make` (assuming you have a full install of TeX Live, including XeLaTeX, and that [Petite Chez Scheme](https://github.com/cisco/ChezScheme) is installed, with `petite` on your PATH).
 
 
 Changes in this version of the dissertation:
